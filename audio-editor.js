@@ -1,0 +1,125 @@
+(()=>{
+  const $a=s=>document.querySelector(s);
+  const laneTypes=['music','voice','fx'];
+  let selectedClipId=null;
+  let drag=null;
+  let playheadSec=0;
+  let playing=false;
+  let raf=0;
+  let playStartedAt=0;
+  let playStartedSec=0;
+  let waveformCache=new Map();
+
+  function ensureTimeline(){
+    if(!state.audioTimeline) state.audioTimeline={clips:[],zoom:1,snap:'beat'};
+    state.audioTimeline.clips=Array.isArray(state.audioTimeline.clips)?state.audioTimeline.clips:[];
+    state.audioTimeline.zoom=Number(state.audioTimeline.zoom)||1;
+    state.audioTimeline.snap=state.audioTimeline.snap||'beat';
+  }
+  function secPerBeat(){return 60/(Number(state.targetBpm)||147)}
+  function secPerEight(){return secPerBeat()*8}
+  function projectSeconds(){return Math.max(Number(state.duration)||150,state.eights.length*secPerEight())}
+  function pxPerSec(){return 82*(state.audioTimeline.zoom||1)/secPerEight()}
+  function snapSec(v){
+    const mode=state.audioTimeline.snap;
+    if(mode==='off') return Math.max(0,v);
+    const unit=mode==='eight'?secPerEight():secPerBeat();
+    return Math.max(0,Math.round(v/unit)*unit);
+  }
+  function fmt(s){s=Math.max(0,s||0);const m=Math.floor(s/60),sec=Math.floor(s%60),d=Math.floor((s-Math.floor(s))*10);return `${m}:${String(sec).padStart(2,'0')}.${d}`}
+  function timelineWidth(){return Math.max(900,projectSeconds()*pxPerSec())}
+  function clipLaneTop(type){return type==='voice'?132:type==='fx'?214:50}
+  function getTrackByName(name){return (state.tracks||[]).find(t=>t.name===name)}
+
+  function renderTrackSelect(){
+    const sel=$a('#clipSource'); if(!sel)return;
+    const old=sel.value; sel.innerHTML='<option value="">Valitse lisätty tiedosto…</option>';
+    (state.tracks||[]).forEach((t,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=t.name;sel.appendChild(o)});
+    if([...sel.options].some(o=>o.value===old))sel.value=old;
+  }
+
+  function renderTimeline(){
+    ensureTimeline();
+    const content=$a('#timelineContent'); if(!content)return;
+    const width=timelineWidth(); content.style.width=`${width}px`;
+    content.querySelectorAll('.ruler-eight,.ruler-beat,.beat-grid-line,.audio-clip,.timeline-empty').forEach(n=>n.remove());
+    const ruler=$a('#timelineRuler'); ruler.style.width=`${width}px`;
+    const beat=secPerBeat(),eight=secPerEight(),pps=pxPerSec();
+    const beats=Math.ceil(projectSeconds()/beat);
+    for(let i=0;i<=beats;i++){
+      const x=i*beat*pps;
+      const gl=document.createElement('div');gl.className='beat-grid-line'+(i%8===0?' eight-grid-line':'');gl.style.left=`${x}px`;content.appendChild(gl);
+      if(i%8===0){const r=document.createElement('div');r.className='ruler-eight';r.style.left=`${x}px`;r.textContent=`Kasi ${Math.floor(i/8)+1}`;ruler.appendChild(r)}
+      const rb=document.createElement('div');rb.className='ruler-beat';rb.style.left=`${x}px`;rb.textContent=(i%8)+1;ruler.appendChild(rb);
+    }
+    if(!state.audioTimeline.clips.length){const e=document.createElement('div');e.className='timeline-empty';e.textContent='Lisää musiikkitiedosto kirjastoon ja valitse “Lisää clippi”.';content.appendChild(e)}
+    state.audioTimeline.clips.forEach(c=>renderClip(c,content));
+    setPlayhead(playheadSec,false);
+    updateStatus();
+  }
+
+  function renderClip(c,content){
+    const pps=pxPerSec();
+    const el=document.createElement('div');
+    el.className=`audio-clip ${c.type||'music'} ${selectedClipId===c.id?'selected':''}`;
+    el.dataset.clip=c.id;el.style.left=`${c.start*pps}px`;el.style.width=`${Math.max(22,c.duration*pps)}px`;el.style.top=`${clipLaneTop(c.type)-50+9}px`;
+    el.innerHTML=`<div class="clip-title">${escapeHtml(c.name||c.type)}</div><canvas class="clip-wave"></canvas><div class="clip-handle left"></div><div class="clip-handle right"></div>`;
+    const lane=$a(`#lane-${c.type||'music'}`); if(lane)lane.appendChild(el); else content.appendChild(el);
+    const canvas=el.querySelector('canvas'); drawWaveform(canvas,c);
+  }
+
+  async function drawWaveform(canvas,c){
+    const track=getTrackByName(c.sourceName); const rect=canvas.getBoundingClientRect();
+    canvas.width=Math.max(40,Math.floor(rect.width||180)); canvas.height=44;
+    const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);ctx.strokeStyle='rgba(255,255,255,.72)';ctx.lineWidth=1;
+    let peaks=waveformCache.get(c.sourceName);
+    if(!peaks&&track?.url){
+      try{const ac=new (window.AudioContext||window.webkitAudioContext)();const buf=await fetch(track.url).then(r=>r.arrayBuffer()).then(b=>ac.decodeAudioData(b));const ch=buf.getChannelData(0),bins=600;peaks=[];for(let i=0;i<bins;i++){const a=Math.floor(i*ch.length/bins),b=Math.floor((i+1)*ch.length/bins);let m=0;for(let j=a;j<b;j+=Math.max(1,Math.floor((b-a)/30)))m=Math.max(m,Math.abs(ch[j]));peaks.push(m)}waveformCache.set(c.sourceName,peaks);ac.close()}catch{}
+    }
+    if(!peaks){peaks=Array.from({length:120},(_,i)=>.18+.22*Math.abs(Math.sin(i*.43))+.2*Math.abs(Math.sin(i*.13)))}
+    const mid=canvas.height/2;ctx.beginPath();for(let x=0;x<canvas.width;x++){const idx=Math.min(peaks.length-1,Math.floor(x/canvas.width*peaks.length)),amp=peaks[idx]*mid*.9;ctx.moveTo(x,mid-amp);ctx.lineTo(x,mid+amp)}ctx.stroke();
+  }
+
+  function addClip(){
+    ensureTimeline();const sel=$a('#clipSource'),type=$a('#clipType').value;const i=Number(sel.value);const t=state.tracks?.[i];if(!t){alert('Lisää ja valitse ensin audiotiedosto.');return}
+    snapshot();
+    const dur=Math.min(t.duration||secPerEight()*4,secPerEight()*8);
+    const c={id:uid(),type,sourceName:t.name,name:t.name,start:snapSec(playheadSec),sourceOffset:0,duration:dur};
+    state.audioTimeline.clips.push(c);selectedClipId=c.id;renderTimeline();scheduleSave();
+  }
+  function deleteClip(){if(!selectedClipId)return;ensureTimeline();const i=state.audioTimeline.clips.findIndex(c=>c.id===selectedClipId);if(i<0)return;snapshot();state.audioTimeline.clips.splice(i,1);selectedClipId=null;renderTimeline();scheduleSave()}
+
+  function setPlayhead(sec,scroll=true){playheadSec=Math.max(0,Math.min(projectSeconds(),sec));const ph=$a('#playhead');if(ph)ph.style.left=`${playheadSec*pxPerSec()}px`;const tt=$a('#transportTime');if(tt)tt.textContent=fmt(playheadSec);if(scroll){const sc=$a('#timelineScroll'),x=playheadSec*pxPerSec();if(x<sc.scrollLeft+30||x>sc.scrollLeft+sc.clientWidth-50)sc.scrollLeft=Math.max(0,x-sc.clientWidth*.35)}}
+  function toggleTransport(){playing?stopTransport():startTransport()}
+  function startTransport(){playing=true;playStartedAt=performance.now();playStartedSec=playheadSec;$a('#btnTimelinePlay').textContent='⏸';tick()}
+  function stopTransport(){playing=false;cancelAnimationFrame(raf);$a('#btnTimelinePlay').textContent='▶'}
+  function tick(){if(!playing)return;const sec=playStartedSec+(performance.now()-playStartedAt)/1000;if(sec>=projectSeconds()){setPlayhead(0);stopTransport();return}setPlayhead(sec,true);raf=requestAnimationFrame(tick)}
+  function updateStatus(){const c=state.audioTimeline.clips.find(x=>x.id===selectedClipId);$a('#audioSelectionStatus').innerHTML=c?`Valittu: <strong>${escapeHtml(c.name)}</strong> · ${fmt(c.start)} → ${fmt(c.start+c.duration)}`:'Ei clippiä valittu';$a('#timelineScaleStatus').textContent=`${state.targetBpm} BPM · ${fmt(secPerEight())} / kasi`}
+
+  function onPointerDown(e){
+    const clipEl=e.target.closest('.audio-clip');
+    if(clipEl){
+      const c=state.audioTimeline.clips.find(x=>x.id===clipEl.dataset.clip);if(!c)return;selectedClipId=c.id;renderTimeline();
+      const mode=e.target.classList.contains('left')?'resize-left':e.target.classList.contains('right')?'resize-right':'move';drag={id:c.id,mode,x:e.clientX,start:c.start,duration:c.duration,offset:c.sourceOffset||0};e.preventDefault();return;
+    }
+    const lane=e.target.closest('.timeline-lane,.timeline-ruler');if(lane){const rect=$a('#timelineContent').getBoundingClientRect();setPlayhead((e.clientX-rect.left)/pxPerSec());selectedClipId=null;renderTimeline()}
+  }
+  function onPointerMove(e){if(!drag)return;const c=state.audioTimeline.clips.find(x=>x.id===drag.id);if(!c)return;const ds=(e.clientX-drag.x)/pxPerSec();if(drag.mode==='move')c.start=snapSec(drag.start+ds);else if(drag.mode==='resize-right')c.duration=Math.max(secPerBeat(),snapSec(drag.duration+ds));else{const newStart=snapSec(drag.start+ds),delta=newStart-drag.start;c.start=Math.max(0,newStart);c.duration=Math.max(secPerBeat(),drag.duration-delta);c.sourceOffset=Math.max(0,drag.offset+delta)}renderTimeline()}
+  function onPointerUp(){if(!drag)return;snapshot();drag=null;scheduleSave()}
+
+  function init(){
+    ensureTimeline();
+    const root=$a('#audioWorkspace');if(!root)return;
+    renderTrackSelect();renderTimeline();
+    new MutationObserver(()=>renderTrackSelect()).observe($a('#musicList'),{childList:true,subtree:true});
+    $a('#btnAddClip').addEventListener('click',addClip);$a('#btnDeleteClip').addEventListener('click',deleteClip);
+    $a('#btnTimelinePlay').addEventListener('click',toggleTransport);$a('#btnTimelineHome').addEventListener('click',()=>{stopTransport();setPlayhead(0)});
+    $a('#timelineZoom').value=String(state.audioTimeline.zoom);$a('#timelineZoom').addEventListener('input',e=>{state.audioTimeline.zoom=Number(e.target.value);renderTimeline();scheduleSave()});
+    $a('#timelineSnap').value=state.audioTimeline.snap;$a('#timelineSnap').addEventListener('change',e=>{state.audioTimeline.snap=e.target.value;scheduleSave()});
+    $a('#timelineContent').addEventListener('pointerdown',onPointerDown);window.addEventListener('pointermove',onPointerMove);window.addEventListener('pointerup',onPointerUp);
+    window.addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','TEXTAREA','SELECT','BUTTON'].includes(document.activeElement?.tagName)){e.preventDefault();toggleTransport()}if((e.key==='Delete'||e.key==='Backspace')&&selectedClipId&&!['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();deleteClip()}});
+    const oldRenderAll=renderAll;renderAll=function(){oldRenderAll();ensureTimeline();renderTrackSelect();renderTimeline()};
+    const oldRenderHeader=renderHeader;renderHeader=function(){oldRenderHeader();if($a('#timelineContent'))renderTimeline()};
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+})();
