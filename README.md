@@ -1,29 +1,43 @@
 # Cheer Music Studio
 
-Ensimmäinen toimiva selainpohjainen pohja cheerleading-musiikin suunnitteluun.
+Tietokonekäyttöön painotettu cheerleading-ohjelman 8-count-suunnittelu- ja myöhemmin musiikin AI-miksaussovellus.
 
-## V1-toiminnot
+## Desktop V2
 
-- 8-count-taulukko, laskut 1–8
+- leveä 8-count-taulukko laskuilla 1–8
 - ohjelman osat: Intro, Jumps, Tumbling, Stunt, Basket, Pyramid, Dance, Transition, Ending
 - tapahtuman kirjoittaminen yksittäiselle laskulle
 - tärkeän musiikillisen osuman merkintä
 - musiikki-, voiceover- ja FX-muistiinpanot kasikohtaisesti
-- kasien lisäys ja poisto
-- projektin tallennus selaimen localStorageen
-- omien audiotiedostojen tuonti ja kuuntelu
-- tavoite-BPM:n mukainen alustava laskunäyttö
-- PWA-pohja ja offline-välimuisti
+- usean rivin valinta
+- valittujen rivien kopiointi, siirtäminen ja poistaminen
+- Undo / Redo
+- useita projekteja samassa selaimessa
+- automaattitallennus localStorageen
+- projektin JSON-varmuuskopion vienti ja tuonti
+- vanhan V1-projektin automaattinen migraatio V2-muotoon
+- omien audiotiedostojen väliaikainen tuonti ja kuuntelu
+- tavoite-BPM:n mukainen laskunäyttö
+- PWA- ja offline-pohja
 
-## Seuraavat vaiheet
+## Pikanäppäimet
 
-1. waveform ja tarkka musiikkikohdan valinta
-2. BPM/beat-analyysi sekä 1-laskun korjaus
-3. musiikkipätkien sijoittaminen kasialueille
-4. tarkka time-stretch ja beat-grid
-5. voiceover- ja FX-kirjasto
-6. AI mix -ehdotukset ja lopullinen WAV/MP3-renderöinti
+- `Ctrl+S` tallenna
+- `Ctrl+Z` kumoa
+- `Ctrl+Y` tee uudelleen
+
+## Suunniteltu jatkokehitys
+
+1. viimeistelty desktop-käyttökokemus ja suurempien ohjelmien käsittely
+2. pysyvä audiotiedostojen projektitallennus
+3. waveform ja tarkka musiikkikohdan valinta
+4. BPM/beat-analyysi sekä 1-laskun korjaus
+5. musiikkipätkien sijoittaminen kasialueille
+6. laadukas time-stretch ja beat-grid
+7. voiceover- ja FX-kirjasto
+8. AI mix -ehdotukset
+9. lopullinen WAV/MP3-renderöinti
 
 ## GitHub Pages
 
-Kun Pages on otettu käyttöön repositorion Settings → Pages -kohdasta lähteellä `Deploy from a branch`, valitse `main` ja `/ (root)`.
+Pages: `Settings → Pages → Deploy from a branch → main → / (root)`.
