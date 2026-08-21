@@ -1,72 +1,84 @@
-const STORAGE_KEY='cheerMusicStudioProjectV1';
+const DB_KEY='cheerMusicStudioProjectsV2';
+const ACTIVE_KEY='cheerMusicStudioActiveProjectV2';
+const LEGACY_KEY='cheerMusicStudioProjectV1';
 const parts=['Intro','Jumps','Tumbling','Stunt','Basket','Pyramid','Dance','Transition','Ending'];
-
-const state={
-  projectName:'Uusi cheer mix', teamName:'', duration:150, targetBpm:147,
-  eights:[], tracks:[]
-};
+const $=s=>document.querySelector(s);
+const eightBody=$('#eightBody'),beatRow=$('#beatRow'),player=$('#audioPlayer');
+let projects={};
+let state=null;
 let activeCell=null;
+let selectedRows=new Set();
+let undoStack=[],redoStack=[];
+let autosaveTimer=null;
 let objectUrls=[];
 
-const $=s=>document.querySelector(s);
-const eightBody=$('#eightBody');
-const beatRow=$('#beatRow');
-const player=$('#audioPlayer');
+const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const deepClone=o=>JSON.parse(JSON.stringify(o));
+function newEight(index=0){return{id:uid(),part:index===0?'Intro':'Stunt',counts:Array.from({length:8},()=>({text:'',hit:false})),music:'',voiceover:'',fx:''}}
+function newProject(name='Uusi cheer mix'){return{id:uid(),projectName:name,teamName:'',duration:150,targetBpm:147,eights:Array.from({length:8},(_,i)=>newEight(i)),tracks:[],createdAt:Date.now(),updatedAt:Date.now()}}
+function escapeHtml(v=''){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));}
+function formatTime(sec){sec=Math.max(0,Math.floor(sec||0));return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`}
+function formatBytes(n){if(!Number.isFinite(n))return'';if(n<1048576)return`${Math.round(n/1024)} KB`;return`${(n/1048576).toFixed(1)} MB`}
+function serializeProject(p=state){return{...deepClone(p),tracks:(p.tracks||[]).map(t=>({name:t.name,type:t.type,size:t.size,duration:t.duration||0}))}}
 
-function newEight(index){return {id:crypto.randomUUID?.()||String(Date.now()+Math.random()),part:index===0?'Intro':'Stunt',counts:Array.from({length:8},()=>({text:'',hit:false})),music:'',voiceover:'',fx:''}}
-function ensureRows(){if(!state.eights.length){for(let i=0;i<8;i++) state.eights.push(newEight(i));}}
-function escapeHtml(v=''){return v.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));}
-function render(){
-  $('#projectName').value=state.projectName; $('#teamName').value=state.teamName; $('#duration').value=String(state.duration); $('#targetBpm').value=state.targetBpm;
-  eightBody.innerHTML='';
-  state.eights.forEach((e,row)=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="sticky sticky-1 row-index">${row+1}</td><td class="sticky sticky-2 part-cell"><select class="part-select" data-row="${row}">${parts.map(p=>`<option ${p===e.part?'selected':''}>${p}</option>`).join('')}</select></td>${e.counts.map((c,col)=>`<td class="count-cell ${c.hit?'hit':''}" data-row="${row}" data-col="${col}">${escapeHtml(c.text)}</td>`).join('')}<td><input class="meta-input" data-field="music" data-row="${row}" value="${escapeHtml(e.music)}" placeholder="Kappale / kohta"></td><td><input class="meta-input" data-field="voiceover" data-row="${row}" value="${escapeHtml(e.voiceover)}" placeholder="Voiceover"></td><td><input class="meta-input" data-field="fx" data-row="${row}" value="${escapeHtml(e.fx)}" placeholder="FX"></td><td><button class="row-delete" data-delete="${row}" title="Poista kasi">×</button></td>`;
-    eightBody.appendChild(tr);
-  });
-  $('#countSummary').textContent=`${state.eights.length} kasia`;
-}
-function markDirty(){ $('#saveStatus').textContent='Tallentamaton'; }
-function save(){
-  state.projectName=$('#projectName').value.trim()||'Uusi cheer mix'; state.teamName=$('#teamName').value.trim(); state.duration=Number($('#duration').value); state.targetBpm=Number($('#targetBpm').value)||147;
-  const serial={...state,tracks:state.tracks.map(t=>({name:t.name,type:t.type,size:t.size,duration:t.duration||0}))};
-  localStorage.setItem(STORAGE_KEY,JSON.stringify(serial)); $('#saveStatus').textContent='Tallennettu';
-}
-function load(){
-  try{const raw=localStorage.getItem(STORAGE_KEY); if(raw){const s=JSON.parse(raw); Object.assign(state,s); state.tracks=[];}}
-  catch(e){console.warn('Tallennuksen lataus epäonnistui',e)} ensureRows(); render(); renderTracks();
-}
-function renderBeats(){beatRow.innerHTML=''; for(let i=1;i<=8;i++){const el=document.createElement('div');el.className='beat';el.textContent=i;beatRow.appendChild(el)}}
-function openCell(row,col){activeCell={row,col}; const c=state.eights[row].counts[col]; $('#cellTitle').textContent=`Kasi ${row+1} / lasku ${col+1}`; $('#cellText').value=c.text; $('#cellHit').checked=c.hit; $('#cellDialog').showModal(); setTimeout(()=>$('#cellText').focus(),50)}
-function renderTracks(){
-  const list=$('#musicList');
-  if(!state.tracks.length){list.className='music-list empty-state';list.textContent='Ei musiikkia lisätty. Audiotiedostot lisätään uudelleen sivun lataamisen jälkeen.';return}
-  list.className='music-list'; list.innerHTML='';
-  state.tracks.forEach((t,i)=>{const div=document.createElement('div');div.className='music-item'; const dur=t.duration?formatTime(t.duration):'analysoidaan…'; div.innerHTML=`<div><div class="music-title">${escapeHtml(t.name)}</div><div class="music-meta">${escapeHtml(t.type||'audio')} · ${dur} · ${formatBytes(t.size)}</div></div><div class="music-actions"><button class="mini-btn" data-playtrack="${i}">▶ Kuuntele</button><button class="mini-btn" data-removetrack="${i}">Poista</button></div>`;list.appendChild(div)})
-}
-function formatTime(sec){sec=Math.max(0,Math.floor(sec));return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`}
-function formatBytes(n){if(!Number.isFinite(n))return '';if(n<1024*1024)return `${Math.round(n/1024)} KB`;return `${(n/1024/1024).toFixed(1)} MB`}
-function addAudioFiles(files){
-  [...files].forEach(file=>{if(!file.type.startsWith('audio/'))return; const url=URL.createObjectURL(file);objectUrls.push(url); const track={name:file.name,type:file.type,size:file.size,url,duration:0}; state.tracks.push(track); const a=new Audio();a.preload='metadata';a.src=url;a.addEventListener('loadedmetadata',()=>{track.duration=a.duration;renderTracks()},{once:true});}); renderTracks();markDirty();
-}
+function readDb(){try{return JSON.parse(localStorage.getItem(DB_KEY)||'{}')}catch{return{}}}
+function writeDb(){localStorage.setItem(DB_KEY,JSON.stringify(projects))}
+function saveNow(show=true){if(!state)return;syncHeaderToState();state.updatedAt=Date.now();projects[state.id]=serializeProject();writeDb();localStorage.setItem(ACTIVE_KEY,state.id);if(show)setSaveStatus(false);renderProjects()}
+function scheduleSave(){setSaveStatus(true);clearTimeout(autosaveTimer);autosaveTimer=setTimeout(()=>saveNow(false),700)}
+function setSaveStatus(dirty){const el=$('#saveStatus');el.textContent=dirty?'Tallennetaan…':'Tallennettu';el.classList.toggle('dirty',dirty)}
+function syncHeaderToState(){state.projectName=$('#projectName').value.trim()||'Uusi cheer mix';state.teamName=$('#teamName').value.trim();state.duration=Number($('#duration').value)||150;state.targetBpm=Math.max(80,Math.min(220,Number($('#targetBpm').value)||147))}
+function migrateLegacy(){if(Object.keys(projects).length)return;try{const old=JSON.parse(localStorage.getItem(LEGACY_KEY)||'null');if(old){const p=newProject(old.projectName||'Vanha projekti');Object.assign(p,old,{id:p.id,tracks:[],createdAt:Date.now(),updatedAt:Date.now()});projects[p.id]=serializeProject(p);writeDb();localStorage.setItem(ACTIVE_KEY,p.id)}}catch{}}
+function loadInitial(){projects=readDb();migrateLegacy();let id=localStorage.getItem(ACTIVE_KEY);if(!id||!projects[id]){const p=newProject();projects[p.id]=serializeProject(p);id=p.id;writeDb();localStorage.setItem(ACTIVE_KEY,id)}state=deepClone(projects[id]);state.tracks=[];normalizeState();renderAll();}
+function normalizeState(){state.eights=Array.isArray(state.eights)&&state.eights.length?state.eights:[newEight(0)];state.eights.forEach((e,i)=>{e.id=e.id||uid();e.part=parts.includes(e.part)?e.part:(i===0?'Intro':'Stunt');e.counts=Array.from({length:8},(_,c)=>e.counts?.[c]||{text:'',hit:false});e.music=e.music||'';e.voiceover=e.voiceover||'';e.fx=e.fx||''});state.tracks=state.tracks||[]}
+
+function snapshot(){undoStack.push(serializeProject());if(undoStack.length>80)undoStack.shift();redoStack=[];updateHistoryButtons()}
+function restoreSnapshot(s){const liveTracks=state.tracks;state=deepClone(s);state.tracks=liveTracks;selectedRows.clear();renderAll();scheduleSave()}
+function undo(){if(!undoStack.length)return;redoStack.push(serializeProject());restoreSnapshot(undoStack.pop());updateHistoryButtons()}
+function redo(){if(!redoStack.length)return;undoStack.push(serializeProject());restoreSnapshot(redoStack.pop());updateHistoryButtons()}
+function updateHistoryButtons(){$('#btnUndo').disabled=!undoStack.length;$('#btnRedo').disabled=!redoStack.length}
+
+function renderAll(){renderHeader();renderTable();renderTracks();renderBeats();renderProjects();updateHistoryButtons();updateSelectionToolbar()}
+function renderHeader(){$('#projectName').value=state.projectName;$('#teamName').value=state.teamName;$('#duration').value=String(state.duration);$('#targetBpm').value=state.targetBpm;$('#countSummary').textContent=`${state.eights.length} kasia`;const sec=state.eights.length*8*(60/state.targetBpm);$('#timeSummary').textContent=`${formatTime(sec)} @ ${state.targetBpm} BPM`}
+function renderTable(){eightBody.innerHTML='';state.eights.forEach((e,row)=>{const tr=document.createElement('tr');if(selectedRows.has(row))tr.classList.add('row-selected');tr.innerHTML=`<td class="sticky sticky-select row-select-cell"><input class="row-check" type="checkbox" data-select="${row}" ${selectedRows.has(row)?'checked':''}></td><td class="sticky sticky-1 row-index">${row+1}</td><td class="sticky sticky-2 part-cell"><select class="part-select" data-row="${row}">${parts.map(p=>`<option ${p===e.part?'selected':''}>${p}</option>`).join('')}</select></td>${e.counts.map((c,col)=>`<td class="count-cell ${c.hit?'hit':''}" data-row="${row}" data-col="${col}" title="Kasi ${row+1}, lasku ${col+1}">${escapeHtml(c.text)}</td>`).join('')}<td><input class="meta-input" data-field="music" data-row="${row}" value="${escapeHtml(e.music)}" placeholder="Kappale / kohta"></td><td><input class="meta-input" data-field="voiceover" data-row="${row}" value="${escapeHtml(e.voiceover)}" placeholder="Voiceover"></td><td><input class="meta-input" data-field="fx" data-row="${row}" value="${escapeHtml(e.fx)}" placeholder="FX"></td>`;eightBody.appendChild(tr)});renderHeader()}
+function renderBeats(){beatRow.innerHTML='';for(let i=1;i<=8;i++){const el=document.createElement('div');el.className='beat';el.textContent=i;beatRow.appendChild(el)}}
+function updateSelectionToolbar(){const n=selectedRows.size;$('#selectionInfo').textContent=n?`${n} rivi${n===1?'':'ä'} valittu`:'Ei rivejä valittu';['btnDuplicate','btnMoveUp','btnMoveDown','btnDeleteSelected'].forEach(id=>$('#'+id).disabled=!n)}
+function renderProjects(){const list=$('#projectsList');if(!list)return;list.innerHTML='';Object.values(projects).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).forEach(p=>{const card=document.createElement('div');card.className=`project-card ${p.id===state?.id?'active':''}`;card.innerHTML=`<div><div class="project-card-title">${escapeHtml(p.projectName||'Nimetön projekti')}</div><div class="project-card-meta">${escapeHtml(p.teamName||'Ei joukkuetta')} · ${(p.eights||[]).length} kasia · ${new Date(p.updatedAt||Date.now()).toLocaleString('fi-FI')}</div></div><div class="project-card-actions"><button class="mini-btn" data-openproject="${p.id}">${p.id===state?.id?'Auki':'Avaa'}</button>${Object.keys(projects).length>1?`<button class="mini-btn danger-text" data-deleteproject="${p.id}">Poista</button>`:''}</div>`;list.appendChild(card)})}
+function renderTracks(){const list=$('#musicList');if(!state.tracks.length){list.className='music-list empty-state';list.textContent='Ei musiikkia lisätty. Musiikkitiedostot pidetään tässä vaiheessa vain nykyisen istunnon ajan.';return}list.className='music-list';list.innerHTML='';state.tracks.forEach((t,i)=>{const div=document.createElement('div');div.className='music-item';div.innerHTML=`<div><div class="music-title">${escapeHtml(t.name)}</div><div class="music-meta">${escapeHtml(t.type||'audio')} · ${t.duration?formatTime(t.duration):'analysoidaan…'} · ${formatBytes(t.size)}</div></div><div class="music-actions"><button class="mini-btn" data-playtrack="${i}">▶ Kuuntele</button><button class="mini-btn" data-removetrack="${i}">Poista</button></div>`;list.appendChild(div)})}
+
+function openCell(row,col){activeCell={row,col};const c=state.eights[row].counts[col];$('#cellTitle').textContent=`Kasi ${row+1} / lasku ${col+1}`;$('#cellText').value=c.text;$('#cellHit').checked=!!c.hit;$('#cellDialog').showModal();setTimeout(()=>$('#cellText').focus(),40)}
+function addRows(count=1){snapshot();for(let i=0;i<count;i++)state.eights.push(newEight(state.eights.length));renderTable();scheduleSave();requestAnimationFrame(()=>eightBody.lastElementChild?.scrollIntoView({behavior:'smooth',block:'nearest'}))}
+function duplicateSelected(){if(!selectedRows.size)return;snapshot();const indexes=[...selectedRows].sort((a,b)=>a-b);const inserts=indexes.map(i=>{const c=deepClone(state.eights[i]);c.id=uid();return c});const after=indexes[indexes.length-1]+1;state.eights.splice(after,0,...inserts);selectedRows=new Set(inserts.map((_,i)=>after+i));renderTable();updateSelectionToolbar();scheduleSave()}
+function moveSelected(dir){if(!selectedRows.size)return;const arr=[...selectedRows].sort((a,b)=>a-b);if(dir<0&&arr[0]===0)return;if(dir>0&&arr[arr.length-1]===state.eights.length-1)return;snapshot();if(dir<0){for(const i of arr)[state.eights[i-1],state.eights[i]]=[state.eights[i],state.eights[i-1]]}else{for(const i of arr.reverse())[state.eights[i+1],state.eights[i]]=[state.eights[i],state.eights[i+1]]}selectedRows=new Set([...selectedRows].map(i=>i+dir));renderTable();updateSelectionToolbar();scheduleSave()}
+function deleteSelected(){if(!selectedRows.size)return;if(!confirm(`Poistetaanko ${selectedRows.size} valittu${selectedRows.size===1?' kasi':'a kasia'}?`))return;snapshot();state.eights=state.eights.filter((_,i)=>!selectedRows.has(i));if(!state.eights.length)state.eights=[newEight(0)];selectedRows.clear();renderTable();updateSelectionToolbar();scheduleSave()}
+
+function addAudioFiles(files){[...files].forEach(file=>{if(!file.type.startsWith('audio/'))return;const url=URL.createObjectURL(file);objectUrls.push(url);const track={name:file.name,type:file.type,size:file.size,url,duration:0};state.tracks.push(track);const a=new Audio();a.preload='metadata';a.src=url;a.addEventListener('loadedmetadata',()=>{track.duration=a.duration;renderTracks()},{once:true})});renderTracks()}
 function playTrack(index){const t=state.tracks[index];if(!t)return;player.src=t.url;player.play().catch(()=>{});$('#playerMeta').textContent=t.name}
-function updateBeatIndicator(){
-  const bpm=Number($('#targetBpm').value)||147; const secPerBeat=60/bpm; const beat=Math.floor(player.currentTime/secPerBeat)%8; const eight=Math.floor(player.currentTime/(secPerBeat*8))+1; $('#currentEight').textContent=eight; [...beatRow.children].forEach((el,i)=>el.classList.toggle('active',i===beat));
-}
+function updateBeatIndicator(){const bpm=Number($('#targetBpm').value)||147,spb=60/bpm;const beat=Math.floor(player.currentTime/spb)%8;const eight=Math.floor(player.currentTime/(spb*8))+1;$('#currentEight').textContent=eight;[...beatRow.children].forEach((el,i)=>el.classList.toggle('active',i===beat))}
 
-eightBody.addEventListener('click',e=>{const cell=e.target.closest('.count-cell');if(cell)openCell(Number(cell.dataset.row),Number(cell.dataset.col));const del=e.target.closest('[data-delete]');if(del){const r=Number(del.dataset.delete);if(confirm(`Poistetaanko kasi ${r+1}?`)){state.eights.splice(r,1);render();markDirty()}}});
-eightBody.addEventListener('change',e=>{if(e.target.matches('.part-select')){state.eights[Number(e.target.dataset.row)].part=e.target.value;markDirty()} if(e.target.matches('.meta-input')){state.eights[Number(e.target.dataset.row)][e.target.dataset.field]=e.target.value;markDirty()}});
-eightBody.addEventListener('input',e=>{if(e.target.matches('.meta-input')){state.eights[Number(e.target.dataset.row)][e.target.dataset.field]=e.target.value;markDirty()}});
-$('#btnAddEight').addEventListener('click',()=>{state.eights.push(newEight(state.eights.length));render();markDirty();eightBody.lastElementChild?.scrollIntoView({behavior:'smooth',block:'nearest'})});
-$('#btnReset').addEventListener('click',()=>{if(confirm('Tyhjennetäänkö koko 8-count-suunnitelma?')){state.eights=[];ensureRows();render();markDirty()}});
-$('#cellSave').addEventListener('click',e=>{e.preventDefault();if(!activeCell)return;const c=state.eights[activeCell.row].counts[activeCell.col];c.text=$('#cellText').value.trim();c.hit=$('#cellHit').checked;$('#cellDialog').close();render();markDirty()});
-$('#cellClear').addEventListener('click',e=>{e.preventDefault();if(!activeCell)return;state.eights[activeCell.row].counts[activeCell.col]={text:'',hit:false};$('#cellDialog').close();render();markDirty()});
-$('#btnSave').addEventListener('click',save);
-['projectName','teamName','duration','targetBpm'].forEach(id=>$('#'+id).addEventListener('input',markDirty));
-$('#audioInput').addEventListener('change',e=>{addAudioFiles(e.target.files);e.target.value=''});
-$('#musicList').addEventListener('click',e=>{const p=e.target.closest('[data-playtrack]');if(p)playTrack(Number(p.dataset.playtrack));const r=e.target.closest('[data-removetrack]');if(r){const i=Number(r.dataset.removetrack);const t=state.tracks[i];if(t?.url)URL.revokeObjectURL(t.url);state.tracks.splice(i,1);renderTracks();}});
-$('#btnPlay').addEventListener('click',()=>{if(!player.src&&state.tracks.length)playTrack(0);else if(player.paused)player.play().catch(()=>{});else player.pause()});
-player.addEventListener('timeupdate',updateBeatIndicator);player.addEventListener('play',()=>$('#btnPlay').textContent='⏸ Tauko');player.addEventListener('pause',()=>$('#btnPlay').textContent='▶ Toista');
-window.addEventListener('beforeunload',()=>objectUrls.forEach(u=>URL.revokeObjectURL(u)));
+function openProject(id){if(!projects[id]||id===state.id)return;saveNow(false);state=deepClone(projects[id]);state.tracks=[];normalizeState();localStorage.setItem(ACTIVE_KEY,id);selectedRows.clear();undoStack=[];redoStack=[];renderAll();setSaveStatus(false)}
+function createProject(){saveNow(false);const p=newProject(`Uusi cheer mix ${Object.keys(projects).length+1}`);projects[p.id]=serializeProject(p);writeDb();state=deepClone(p);localStorage.setItem(ACTIVE_KEY,p.id);selectedRows.clear();undoStack=[];redoStack=[];renderAll();setSaveStatus(false)}
+function deleteProject(id){if(id===state.id)return;if(!confirm(`Poistetaanko projekti "${projects[id]?.projectName||''}"?`))return;delete projects[id];writeDb();renderProjects()}
+function exportProject(){saveNow(false);const data={app:'Cheer Music Studio',version:2,exportedAt:new Date().toISOString(),project:serializeProject()};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${(state.projectName||'cheer-project').replace(/[^a-z0-9åäö_-]+/gi,'-')}.cheer.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+async function importProject(file){try{const raw=JSON.parse(await file.text());const incoming=raw.project||raw;if(!Array.isArray(incoming.eights))throw new Error('Virheellinen projektitiedosto');saveNow(false);const p=deepClone(incoming);p.id=uid();p.projectName=`${p.projectName||'Tuotu projekti'} (tuotu)`;p.tracks=[];p.createdAt=Date.now();p.updatedAt=Date.now();state=p;normalizeState();projects[p.id]=serializeProject(p);writeDb();localStorage.setItem(ACTIVE_KEY,p.id);selectedRows.clear();undoStack=[];redoStack=[];renderAll();$('#projectsDialog').close();setSaveStatus(false)}catch(e){alert(`Projektin tuonti epäonnistui: ${e.message}`)}}
+
+// Table interactions
+eightBody.addEventListener('click',e=>{const cell=e.target.closest('.count-cell');if(cell)openCell(Number(cell.dataset.row),Number(cell.dataset.col))});
+eightBody.addEventListener('change',e=>{if(e.target.matches('.row-check')){const r=Number(e.target.dataset.select);e.target.checked?selectedRows.add(r):selectedRows.delete(r);renderTable();updateSelectionToolbar();return}if(e.target.matches('.part-select')){snapshot();state.eights[Number(e.target.dataset.row)].part=e.target.value;scheduleSave()}if(e.target.matches('.meta-input'))scheduleSave()});
+eightBody.addEventListener('input',e=>{if(e.target.matches('.meta-input')){const r=Number(e.target.dataset.row),field=e.target.dataset.field;state.eights[r][field]=e.target.value;scheduleSave()}});
+
+$('#cellSave').addEventListener('click',e=>{e.preventDefault();if(!activeCell)return;snapshot();const c=state.eights[activeCell.row].counts[activeCell.col];c.text=$('#cellText').value.trim();c.hit=$('#cellHit').checked;$('#cellDialog').close();renderTable();scheduleSave()});
+$('#cellClear').addEventListener('click',e=>{e.preventDefault();if(!activeCell)return;snapshot();state.eights[activeCell.row].counts[activeCell.col]={text:'',hit:false};$('#cellDialog').close();renderTable();scheduleSave()});
+$('#btnAddEight').addEventListener('click',()=>addRows(1));
+$('#btnSelectAll').addEventListener('click',()=>{selectedRows.size===state.eights.length?selectedRows.clear():state.eights.forEach((_,i)=>selectedRows.add(i));renderTable();updateSelectionToolbar()});
+$('#btnDuplicate').addEventListener('click',duplicateSelected);$('#btnMoveUp').addEventListener('click',()=>moveSelected(-1));$('#btnMoveDown').addEventListener('click',()=>moveSelected(1));$('#btnDeleteSelected').addEventListener('click',deleteSelected);
+$('#btnUndo').addEventListener('click',undo);$('#btnRedo').addEventListener('click',redo);$('#btnSave').addEventListener('click',()=>saveNow(true));
+['projectName','teamName','duration','targetBpm'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncHeaderToState();renderHeader();scheduleSave()}));
+
+$('#btnProjects').addEventListener('click',()=>{$('#projectsDialog').showModal();renderProjects()});$('#btnCloseProjects').addEventListener('click',()=>$('#projectsDialog').close());$('#btnNewProject').addEventListener('click',createProject);$('#btnExportProject').addEventListener('click',exportProject);$('#projectImport').addEventListener('change',e=>{const f=e.target.files?.[0];if(f)importProject(f);e.target.value=''});$('#projectsList').addEventListener('click',e=>{const o=e.target.closest('[data-openproject]');if(o)openProject(o.dataset.openproject);const d=e.target.closest('[data-deleteproject]');if(d)deleteProject(d.dataset.deleteproject)});
+
+$('#audioInput').addEventListener('change',e=>{addAudioFiles(e.target.files);e.target.value=''});$('#musicList').addEventListener('click',e=>{const p=e.target.closest('[data-playtrack]');if(p)playTrack(Number(p.dataset.playtrack));const r=e.target.closest('[data-removetrack]');if(r){const i=Number(r.dataset.removetrack),t=state.tracks[i];if(t?.url)URL.revokeObjectURL(t.url);state.tracks.splice(i,1);renderTracks()}});$('#btnPlay').addEventListener('click',()=>{if(!player.src&&state.tracks.length)playTrack(0);else if(player.paused)player.play().catch(()=>{});else player.pause()});player.addEventListener('timeupdate',updateBeatIndicator);player.addEventListener('play',()=>$('#btnPlay').textContent='⏸ Tauko');player.addEventListener('pause',()=>$('#btnPlay').textContent='▶ Toista');
+
+document.addEventListener('keydown',e=>{const mod=e.ctrlKey||e.metaKey;if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();saveNow(true)}if(mod&&e.key.toLowerCase()==='z'&&!e.shiftKey){e.preventDefault();undo()}if(mod&&(e.key.toLowerCase()==='y'||(e.key.toLowerCase()==='z'&&e.shiftKey))){e.preventDefault();redo()}if(e.key==='Escape'&&$('#projectsDialog').open)$('#projectsDialog').close()});
+window.addEventListener('beforeunload',()=>{saveNow(false);objectUrls.forEach(u=>URL.revokeObjectURL(u))});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
-renderBeats();load();
+loadInitial();
