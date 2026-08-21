@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <title>Cheer Music Studio</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">CHEER MUSIC STUDIO</div>
+      <input id="projectName" class="project-name" value="Uusi cheer mix" aria-label="Projektin nimi">
+    </div>
+    <div class="top-actions">
+      <button id="btnSave" class="btn secondary">Tallenna</button>
+      <button id="btnPlay" class="btn primary">▶ Toista</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel setup-grid">
+      <label>Pituus
+        <select id="duration">
+          <option value="90">1:30</option>
+          <option value="120">2:00</option>
+          <option value="150" selected>2:30</option>
+        </select>
+      </label>
+      <label>Tavoite-BPM
+        <input id="targetBpm" type="number" min="80" max="220" value="147">
+      </label>
+      <label>Joukkue
+        <input id="teamName" placeholder="Joukkueen nimi">
+      </label>
+      <div class="project-info">
+        <span id="countSummary">0 kasia</span>
+        <span id="saveStatus">Tallentamaton</span>
+      </div>
+    </section>
+
+    <section class="panel editor-panel">
+      <div class="section-head">
+        <div>
+          <h1>8-count-suunnitelma</h1>
+          <p>Kirjoita tapahtumat suoraan laskuille 1–8. Klikkaa solua uudelleen merkitäksesi tärkeän osuman.</p>
+        </div>
+        <div class="section-actions">
+          <button id="btnAddEight" class="btn primary">+ Lisää kasi</button>
+          <button id="btnReset" class="btn danger ghost">Tyhjennä</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="eightTable">
+          <thead>
+            <tr>
+              <th class="sticky sticky-1">Kasi</th>
+              <th class="sticky sticky-2">Osa</th>
+              <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th>
+              <th>Musiikki</th><th>Voiceover</th><th>FX</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="eightBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bottom-grid">
+      <section class="panel music-panel">
+        <div class="section-head compact">
+          <div>
+            <h2>Musiikit</h2>
+            <p>Lisää MP3-, WAV-, M4A- tai FLAC-tiedosto omalta laitteelta.</p>
+          </div>
+          <label class="btn primary file-button">+ Lisää musiikki<input id="audioInput" type="file" accept="audio/*" multiple hidden></label>
+        </div>
+        <div id="musicList" class="music-list empty-state">Ei musiikkia lisätty.</div>
+      </section>
+
+      <section class="panel player-panel">
+        <h2>Kuuntelu</h2>
+        <div class="now-playing">
+          <div class="big-count"><span id="currentEight">1</span><small>KASI</small></div>
+          <div class="beat-row" id="beatRow"></div>
+        </div>
+        <audio id="audioPlayer" controls preload="metadata"></audio>
+        <div class="player-meta" id="playerMeta">Valitse musiikki listasta.</div>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="cellDialog">
+    <form method="dialog" id="cellForm">
+      <h3 id="cellTitle">Muokkaa laskua</h3>
+      <label>Tapahtuma
+        <input id="cellText" maxlength="80" placeholder="esim. basket catch">
+      </label>
+      <label class="check-line"><input id="cellHit" type="checkbox"> Tärkeä musiikillinen osuma</label>
+      <menu>
+        <button value="cancel" class="btn secondary">Peruuta</button>
+        <button id="cellClear" value="default" class="btn danger ghost">Tyhjennä</button>
+        <button id="cellSave" value="default" class="btn primary">Tallenna</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
