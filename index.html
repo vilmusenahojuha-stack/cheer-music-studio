@@ -2,110 +2,77 @@
 <html lang="fi">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
   <title>Cheer Music Studio</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <div class="eyebrow">CHEER MUSIC STUDIO</div>
+    <div class="brand">
+      <div class="eyebrow">CHEER MUSIC STUDIO · DESKTOP V2</div>
       <input id="projectName" class="project-name" value="Uusi cheer mix" aria-label="Projektin nimi">
     </div>
     <div class="top-actions">
-      <button id="btnSave" class="btn secondary">Tallenna</button>
+      <button id="btnProjects" class="btn secondary">Projektit</button>
+      <button id="btnUndo" class="btn secondary" title="Ctrl+Z">↶ Kumoa</button>
+      <button id="btnRedo" class="btn secondary" title="Ctrl+Y">↷ Tee uudelleen</button>
+      <span id="saveStatus" class="save-pill">Tallennettu</span>
+      <button id="btnSave" class="btn secondary" title="Ctrl+S">Tallenna</button>
       <button id="btnPlay" class="btn primary">▶ Toista</button>
     </div>
   </header>
 
   <main>
     <section class="panel setup-grid">
-      <label>Pituus
-        <select id="duration">
-          <option value="90">1:30</option>
-          <option value="120">2:00</option>
-          <option value="150" selected>2:30</option>
-        </select>
-      </label>
-      <label>Tavoite-BPM
-        <input id="targetBpm" type="number" min="80" max="220" value="147">
-      </label>
-      <label>Joukkue
-        <input id="teamName" placeholder="Joukkueen nimi">
-      </label>
-      <div class="project-info">
-        <span id="countSummary">0 kasia</span>
-        <span id="saveStatus">Tallentamaton</span>
-      </div>
+      <label>Joukkue<input id="teamName" placeholder="Joukkueen nimi"></label>
+      <label>Pituus<select id="duration"><option value="90">1:30</option><option value="120">2:00</option><option value="150" selected>2:30</option></select></label>
+      <label>Tavoite-BPM<input id="targetBpm" type="number" min="80" max="220" value="147"></label>
+      <div class="project-stats"><strong id="countSummary">0 kasia</strong><span id="timeSummary">0:00 suunniteltu</span></div>
     </section>
 
     <section class="panel editor-panel">
       <div class="section-head">
-        <div>
-          <h1>8-count-suunnitelma</h1>
-          <p>Kirjoita tapahtumat suoraan laskuille 1–8. Klikkaa solua uudelleen merkitäksesi tärkeän osuman.</p>
-        </div>
-        <div class="section-actions">
-          <button id="btnAddEight" class="btn primary">+ Lisää kasi</button>
-          <button id="btnReset" class="btn danger ghost">Tyhjennä</button>
-        </div>
+        <div><h1>8-count-suunnitelma</h1><p>Valitse rivejä vasemmalta. Klikkaa laskua muokataksesi tapahtumaa ja merkitäksesi musiikillisen osuman.</p></div>
+        <div class="section-actions"><button id="btnAddEight" class="btn primary">+ Lisää kasi</button></div>
+      </div>
+
+      <div class="row-toolbar">
+        <span id="selectionInfo">Ei rivejä valittu</span>
+        <button id="btnSelectAll" class="mini-btn">Valitse kaikki</button>
+        <button id="btnDuplicate" class="mini-btn" disabled>Kopioi rivi(t)</button>
+        <button id="btnMoveUp" class="mini-btn" disabled>↑ Siirrä</button>
+        <button id="btnMoveDown" class="mini-btn" disabled>↓ Siirrä</button>
+        <button id="btnDeleteSelected" class="mini-btn danger-text" disabled>Poista</button>
       </div>
 
       <div class="table-wrap">
         <table id="eightTable">
-          <thead>
-            <tr>
-              <th class="sticky sticky-1">Kasi</th>
-              <th class="sticky sticky-2">Osa</th>
-              <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th>
-              <th>Musiikki</th><th>Voiceover</th><th>FX</th><th></th>
-            </tr>
-          </thead>
+          <thead><tr><th class="sticky sticky-select"></th><th class="sticky sticky-1">Kasi</th><th class="sticky sticky-2">Osa</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th class="wide-col">Musiikki</th><th class="wide-col">Voiceover</th><th class="wide-col">FX</th></tr></thead>
           <tbody id="eightBody"></tbody>
         </table>
       </div>
+      <div class="hintbar"><span>Ctrl+S tallenna</span><span>Ctrl+Z kumoa</span><span>Ctrl+Y tee uudelleen</span><span>Tuplaklikkaa osumaa muokataksesi</span></div>
     </section>
 
     <section class="bottom-grid">
       <section class="panel music-panel">
-        <div class="section-head compact">
-          <div>
-            <h2>Musiikit</h2>
-            <p>Lisää MP3-, WAV-, M4A- tai FLAC-tiedosto omalta laitteelta.</p>
-          </div>
-          <label class="btn primary file-button">+ Lisää musiikki<input id="audioInput" type="file" accept="audio/*" multiple hidden></label>
-        </div>
+        <div class="section-head compact"><div><h2>Musiikkikirjasto</h2><p>Musiikkimoottori rakennetaan myöhemmin. Nyt tiedostoja voi lisätä projektin suunnittelua ja kuuntelua varten.</p></div><label class="btn primary file-button">+ Lisää tiedosto<input id="audioInput" type="file" accept="audio/*" multiple hidden></label></div>
         <div id="musicList" class="music-list empty-state">Ei musiikkia lisätty.</div>
       </section>
-
       <section class="panel player-panel">
-        <h2>Kuuntelu</h2>
-        <div class="now-playing">
-          <div class="big-count"><span id="currentEight">1</span><small>KASI</small></div>
-          <div class="beat-row" id="beatRow"></div>
-        </div>
+        <div class="section-head compact"><div><h2>Kuuntelu</h2><p>Beat-näyttö seuraa projektin tavoite-BPM:ää.</p></div></div>
+        <div class="now-playing"><div class="big-count"><span id="currentEight">1</span><small>KASI</small></div><div class="beat-row" id="beatRow"></div></div>
         <audio id="audioPlayer" controls preload="metadata"></audio>
         <div class="player-meta" id="playerMeta">Valitse musiikki listasta.</div>
       </section>
     </section>
   </main>
 
-  <dialog id="cellDialog">
-    <form method="dialog" id="cellForm">
-      <h3 id="cellTitle">Muokkaa laskua</h3>
-      <label>Tapahtuma
-        <input id="cellText" maxlength="80" placeholder="esim. basket catch">
-      </label>
-      <label class="check-line"><input id="cellHit" type="checkbox"> Tärkeä musiikillinen osuma</label>
-      <menu>
-        <button value="cancel" class="btn secondary">Peruuta</button>
-        <button id="cellClear" value="default" class="btn danger ghost">Tyhjennä</button>
-        <button id="cellSave" value="default" class="btn primary">Tallenna</button>
-      </menu>
-    </form>
-  </dialog>
+  <dialog id="cellDialog"><form method="dialog" id="cellForm"><h3 id="cellTitle">Muokkaa laskua</h3><label>Tapahtuma<input id="cellText" maxlength="100" placeholder="esim. basket catch"></label><label class="check-line"><input id="cellHit" type="checkbox"> Tärkeä musiikillinen osuma</label><menu><button value="cancel" class="btn secondary">Peruuta</button><button id="cellClear" value="default" class="btn danger ghost">Tyhjennä</button><button id="cellSave" value="default" class="btn primary">Tallenna</button></menu></form></dialog>
+
+  <dialog id="projectsDialog" class="projects-dialog"><div class="dialog-head"><div><h2>Projektit</h2><p>Projektit tallentuvat tähän selaimeen automaattisesti.</p></div><button id="btnCloseProjects" class="icon-btn">×</button></div><div class="project-dialog-actions"><button id="btnNewProject" class="btn primary">+ Uusi projekti</button><button id="btnExportProject" class="btn secondary">Vie varmuuskopio</button><label class="btn secondary file-button">Tuo varmuuskopio<input id="projectImport" type="file" accept="application/json,.json" hidden></label></div><div id="projectsList" class="projects-list"></div></dialog>
 
   <script src="app.js"></script>
 </body>
