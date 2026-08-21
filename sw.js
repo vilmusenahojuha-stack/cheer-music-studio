@@ -1,5 +1,5 @@
-const CACHE='cheer-music-studio-v3.1';
-const ASSETS=['./','./index.html','./styles.css?v=3.1','./editor-enhancements.css?v=3.1','./audio-editor.css?v=3.1','./audio-analysis.css?v=3.1','./app.js?v=3.1','./editor-enhancements.js?v=3.1','./audio-editor.js?v=3.1','./audio-analysis.js?v=3.1','./manifest.json'];
+const CACHE='cheer-music-studio-v3.2';
+const ASSETS=['./','./index.html','./styles.css?v=3.2','./editor-enhancements.css?v=3.2','./audio-editor.css?v=3.2','./audio-analysis.css?v=3.2','./app.js?v=3.2','./persistent-audio.js?v=3.2','./editor-enhancements.js?v=3.2','./audio-editor.js?v=3.2','./audio-analysis.js?v=3.2','./manifest.json'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)));self.skipWaiting();});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
 self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;event.respondWith(fetch(event.request).then(response=>{const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response;}).catch(()=>caches.match(event.request).then(cached=>cached||caches.match('./index.html'))));});
