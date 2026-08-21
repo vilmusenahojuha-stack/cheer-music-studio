@@ -1,0 +1,1 @@
+.count-cell.grid-active{outline:2px solid #8b5cf6;outline-offset:-2px;background:#1b2940;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}.count-cell.grid-active.hit{background:#71590a;outline-color:#c4b5fd}.count-cell{user-select:none}.hintbar .keyhint{color:#94a3b8;font-weight:800}.table-wrap{overscroll-behavior:contain;scroll-behavior:smooth}
