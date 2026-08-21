@@ -6,13 +6,14 @@
   <meta name="theme-color" content="#0b1220">
   <title>Cheer Music Studio</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=2.3">
-  <link rel="stylesheet" href="editor-enhancements.css?v=2.3">
+  <link rel="stylesheet" href="styles.css?v=3.0">
+  <link rel="stylesheet" href="editor-enhancements.css?v=3.0">
+  <link rel="stylesheet" href="audio-editor.css?v=3.0">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="eyebrow">CHEER MUSIC STUDIO · DESKTOP V2.3</div>
+      <div class="eyebrow">CHEER MUSIC STUDIO · DESKTOP V3.0</div>
       <input id="projectName" class="project-name" value="Uusi cheer mix" aria-label="Projektin nimi">
     </div>
     <div class="top-actions">
@@ -59,7 +60,7 @@
 
     <section class="bottom-grid">
       <section class="panel music-panel">
-        <div class="section-head compact"><div><h2>Musiikkikirjasto</h2><p>Musiikkimoottori rakennetaan myöhemmin. Nyt tiedostoja voi lisätä projektin suunnittelua ja kuuntelua varten.</p></div><label class="btn primary file-button">+ Lisää tiedosto<input id="audioInput" type="file" accept="audio/*" multiple hidden></label></div>
+        <div class="section-head compact"><div><h2>Musiikkikirjasto</h2><p>Lisää omia audiotiedostoja. V3.0:ssa niistä voi jo tehdä clippejä 8-count-aikajanalle.</p></div><label class="btn primary file-button">+ Lisää tiedosto<input id="audioInput" type="file" accept="audio/*" multiple hidden></label></div>
         <div id="musicList" class="music-list empty-state">Ei musiikkia lisätty.</div>
       </section>
       <section class="panel player-panel">
@@ -69,13 +70,45 @@
         <div class="player-meta" id="playerMeta">Valitse musiikki listasta.</div>
       </section>
     </section>
+
+    <section id="audioWorkspace" class="panel audio-workspace">
+      <div class="section-head">
+        <div><h2>Audioeditori</h2><p>8-count-lukittu aikajana musiikille, voiceovereille ja efekteille. Tämä on pohja myöhemmälle automaattiselle BPM-sovitukselle, AI-mixille ja WAV/MP3-renderöinnille.</p></div>
+        <div class="audio-toolbar">
+          <div class="tool-group clip-menu"><label>Lähde</label><select id="clipSource"><option value="">Valitse lisätty tiedosto…</option></select><label>Raita</label><select id="clipType"><option value="music">Musiikki</option><option value="voice">Voiceover</option><option value="fx">FX</option></select><button id="btnAddClip" class="mini-btn">+ Lisää clippi</button><button id="btnDeleteClip" class="mini-btn danger-text">Poista clippi</button></div>
+          <div class="tool-group"><button id="btnTimelineHome" class="mini-btn">|◀</button><button id="btnTimelinePlay" class="mini-btn">▶</button><span id="transportTime" class="transport-time">0:00.0</span></div>
+          <div class="tool-group"><label>Snap</label><select id="timelineSnap"><option value="beat">Lasku</option><option value="eight">Kasi</option><option value="off">Pois</option></select></div>
+          <div class="tool-group"><label>Zoom</label><input id="timelineZoom" type="range" min="0.55" max="2.8" step="0.05" value="1"></div>
+        </div>
+      </div>
+
+      <div class="timeline-shell">
+        <div class="track-labels">
+          <div class="track-label-spacer">AIKAJANA</div>
+          <div class="track-label"><strong>🎵 MUSIIKKI</strong><span>Pääkappaleet ja siirtymät</span></div>
+          <div class="track-label"><strong>🎙 VOICEOVER</strong><span>Puhe ja huudot</span></div>
+          <div class="track-label"><strong>⚡ FX</strong><span>Hitit, riserit ja impactit</span></div>
+        </div>
+        <div id="timelineScroll" class="timeline-scroll">
+          <div id="timelineContent" class="timeline-content">
+            <div id="timelineRuler" class="timeline-ruler"></div>
+            <div id="lane-music" class="timeline-lane music"></div>
+            <div id="lane-voice" class="timeline-lane voice"></div>
+            <div id="lane-fx" class="timeline-lane fx"></div>
+            <div id="playhead" class="playhead"></div>
+          </div>
+        </div>
+      </div>
+      <div class="audio-status"><span id="audioSelectionStatus">Ei clippiä valittu</span><span id="timelineScaleStatus">147 BPM</span></div>
+    </section>
   </main>
 
   <dialog id="cellDialog"><form method="dialog" id="cellForm"><h3 id="cellTitle">Muokkaa laskua</h3><label>Tapahtuma<input id="cellText" maxlength="100" placeholder="esim. basket catch"></label><label class="check-line"><input id="cellHit" type="checkbox"> Tärkeä musiikillinen osuma</label><menu><button value="cancel" class="btn secondary">Peruuta</button><button id="cellClear" value="default" class="btn danger ghost">Tyhjennä</button><button id="cellSave" value="default" class="btn primary">Tallenna</button></menu></form></dialog>
 
   <dialog id="projectsDialog" class="projects-dialog"><div class="dialog-head"><div><h2>Projektit</h2><p>Projektit tallentuvat tähän selaimeen automaattisesti.</p></div><button id="btnCloseProjects" class="icon-btn">×</button></div><div class="project-dialog-actions"><button id="btnNewProject" class="btn primary">+ Uusi projekti</button><button id="btnExportProject" class="btn secondary">Vie varmuuskopio</button><label class="btn secondary file-button">Tuo varmuuskopio<input id="projectImport" type="file" accept="application/json,.json" hidden></label></div><div id="projectsList" class="projects-list"></div></dialog>
 
-  <script src="app.js?v=2.3"></script>
-  <script src="editor-enhancements.js?v=2.3"></script>
+  <script src="app.js?v=3.0"></script>
+  <script src="editor-enhancements.js?v=3.0"></script>
+  <script src="audio-editor.js?v=3.0"></script>
 </body>
 </html>
