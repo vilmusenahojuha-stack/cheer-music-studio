@@ -1,4 +1,4 @@
-const CACHE='cheer-music-studio-v3.4';
+const CACHE='cheer-music-studio-v3.4-bpm2';
 const ASSETS=['./','./index.html','./styles.css?v=3.4','./editor-enhancements.css?v=3.4','./audio-editor.css?v=3.4','./audio-analysis.css?v=3.4','./app.js?v=3.4','./persistent-audio.js?v=3.4','./editor-enhancements.js?v=3.4','./audio-editor.js?v=3.4','./audio-analysis.js?v=3.4','./eight-music.js?v=3.4','./timeline-audio-engine.js?v=3.4','./manifest.json'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)));self.skipWaiting();});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
