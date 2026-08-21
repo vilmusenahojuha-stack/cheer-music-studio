@@ -28,6 +28,17 @@
   function fmt(s){s=Math.max(0,s||0);const m=Math.floor(s/60),sec=Math.floor(s%60),d=Math.floor((s-Math.floor(s))*10);return `${m}:${String(sec).padStart(2,'0')}.${d}`}
   function timelineWidth(){return Math.max(900,projectSeconds()*pxPerSec())}
   function getTrackByName(name){return (state.tracks||[]).find(t=>t.name===name)}
+  function rateForClip(c){
+    if(c.type!=='music')return 1;
+    const a=state.trackAnalysis?.[c.sourceName];
+    const bpm=Number(a?.bpm||a?.autoBpm),target=Number(state.targetBpm)||147;
+    return Number.isFinite(bpm)&&bpm>0?Math.max(.5,Math.min(2,target/bpm)):1;
+  }
+  function maxTimelineDuration(c,offset=c.sourceOffset||0){
+    const t=getTrackByName(c.sourceName),rate=rateForClip(c);
+    if(!Number.isFinite(t?.duration)||t.duration<=0)return Infinity;
+    return Math.max(secPerBeat(),(t.duration-Math.max(0,offset))/Math.max(.0001,rate));
+  }
 
   function renderTrackSelect(){
     const sel=$a('#clipSource');if(!sel)return;
@@ -95,7 +106,7 @@
     if(!t){alert('Lisää ja valitse ensin audiotiedosto.');return}
     snapshot();
     const dur=Math.min(t.duration||secPerEight()*4,secPerEight()*8);
-    const c={id:uid(),type,sourceName:t.name,name:t.name,start:snapSec(playheadSec),sourceOffset:0,duration:dur};
+    const c={id:uid(),type,sourceName:t.name,name:t.name,start:snapSec(playheadSec),sourceOffset:0,duration:dur,volume:1,fadeIn:0,fadeOut:0};
     state.audioTimeline.clips.push(c);selectedClipId=c.id;renderTimeline();scheduleSave();
   }
   function deleteClip(){
@@ -114,7 +125,7 @@
   function startTransport(){playing=true;playStartedAt=performance.now();playStartedSec=playheadSec;$a('#btnTimelinePlay').textContent='⏸';tick()}
   function stopTransport(){playing=false;cancelAnimationFrame(raf);$a('#btnTimelinePlay').textContent='▶'}
   function tick(){if(!playing)return;const sec=playStartedSec+(performance.now()-playStartedAt)/1000;if(sec>=projectSeconds()){setPlayhead(0);stopTransport();return}setPlayhead(sec,true);raf=requestAnimationFrame(tick)}
-  function updateStatus(){const c=state.audioTimeline.clips.find(x=>x.id===selectedClipId);$a('#audioSelectionStatus').innerHTML=c?`Valittu: <strong>${escapeHtml(c.name)}</strong> · ${fmt(c.start)} → ${fmt(c.start+c.duration)}`:'Ei clippiä valittu';$a('#timelineScaleStatus').textContent=`${state.targetBpm} BPM · ${fmt(secPerEight())} / kasi`}
+  function updateStatus(){const c=state.audioTimeline.clips.find(x=>x.id===selectedClipId);$a('#audioSelectionStatus').innerHTML=c?`Valittu: <strong>${escapeHtml(c.name)}</strong> · ${fmt(c.start)} → ${fmt(c.start+c.duration)} · lähde ${fmt(c.sourceOffset||0)}`:'Ei clippiä valittu';$a('#timelineScaleStatus').textContent=`${state.targetBpm} BPM · ${fmt(secPerEight())} / kasi`}
 
   function onPointerDown(e){
     const clipEl=e.target.closest('.audio-clip');
@@ -123,7 +134,7 @@
       selectedClipId=c.id;renderTimeline();
       const mode=e.target.classList.contains('left')?'resize-left':e.target.classList.contains('right')?'resize-right':'move';
       snapshot();
-      drag={id:c.id,mode,x:e.clientX,start:c.start,duration:c.duration,offset:c.sourceOffset||0};
+      drag={id:c.id,mode,x:e.clientX,start:c.start,duration:c.duration,offset:c.sourceOffset||0,rate:rateForClip(c)};
       e.preventDefault();return;
     }
     const lane=e.target.closest('.timeline-lane,.timeline-ruler');
@@ -131,10 +142,21 @@
   }
   function onPointerMove(e){
     if(!drag)return;const c=state.audioTimeline.clips.find(x=>x.id===drag.id);if(!c)return;
-    const ds=(e.clientX-drag.x)/pxPerSec();
+    const ds=(e.clientX-drag.x)/pxPerSec(),minDur=secPerBeat();
     if(drag.mode==='move')c.start=snapSec(drag.start+ds);
-    else if(drag.mode==='resize-right')c.duration=Math.max(secPerBeat(),snapSec(drag.duration+ds));
-    else{const newStart=snapSec(drag.start+ds),delta=newStart-drag.start;c.start=Math.max(0,newStart);c.duration=Math.max(secPerBeat(),drag.duration-delta);c.sourceOffset=Math.max(0,drag.offset+delta)}
+    else if(drag.mode==='resize-right'){
+      const wanted=Math.max(minDur,snapSec(drag.duration+ds));
+      c.duration=Math.min(wanted,maxTimelineDuration(c,drag.offset));
+    }else{
+      let newStart=snapSec(drag.start+ds);
+      const maxDelta=drag.duration-minDur;
+      let delta=Math.max(-drag.start,Math.min(maxDelta,newStart-drag.start));
+      let newOffset=Math.max(0,drag.offset+delta*drag.rate);
+      if(newOffset===0&&delta<0)delta=-drag.offset/Math.max(.0001,drag.rate);
+      c.start=Math.max(0,drag.start+delta);
+      c.sourceOffset=Math.max(0,drag.offset+delta*drag.rate);
+      c.duration=Math.min(Math.max(minDur,drag.duration-delta),maxTimelineDuration(c,c.sourceOffset));
+    }
     renderTimeline();
   }
   function onPointerUp(){if(!drag)return;drag=null;scheduleSave()}
@@ -151,6 +173,7 @@
     window.addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','TEXTAREA','SELECT','BUTTON'].includes(document.activeElement?.tagName)){e.preventDefault();toggleTransport()}if((e.key==='Delete'||e.key==='Backspace')&&selectedClipId&&!['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();deleteClip()}});
     const oldRenderAll=renderAll;renderAll=function(){oldRenderAll();ensureTimeline();renderTrackSelect();renderTimeline()};
     const oldRenderHeader=renderHeader;renderHeader=function(){oldRenderHeader();if($a('#timelineContent'))renderTimeline()};
+    window.cheerAudioEditor={renderTimeline,setPlayhead,getSelectedClip:()=>state.audioTimeline.clips.find(c=>c.id===selectedClipId)||null};
   }
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
