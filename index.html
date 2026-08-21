@@ -6,12 +6,13 @@
   <meta name="theme-color" content="#0b1220">
   <title>Cheer Music Studio</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=2.2">
+  <link rel="stylesheet" href="styles.css?v=2.3">
+  <link rel="stylesheet" href="editor-enhancements.css?v=2.3">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="eyebrow">CHEER MUSIC STUDIO · DESKTOP V2.2</div>
+      <div class="eyebrow">CHEER MUSIC STUDIO · DESKTOP V2.3</div>
       <input id="projectName" class="project-name" value="Uusi cheer mix" aria-label="Projektin nimi">
     </div>
     <div class="top-actions">
@@ -34,7 +35,7 @@
 
     <section class="panel editor-panel">
       <div class="section-head">
-        <div><h1>8-count-suunnitelma</h1><p>Valitse rivejä vasemmalta. Klikkaa laskua muokataksesi tapahtumaa ja merkitäksesi musiikillisen osuman.</p></div>
+        <div><h1>8-count-suunnitelma</h1><p>Yksi klikkaus valitsee solun, Enter tai tuplaklikkaus muokkaa. Nuolinäppäimillä ja Tabilla liikut nopeasti laskuissa.</p></div>
         <div class="section-actions"><button id="btnAddEight" class="btn primary">+ Lisää kasi</button></div>
       </div>
 
@@ -53,7 +54,7 @@
           <tbody id="eightBody"></tbody>
         </table>
       </div>
-      <div class="hintbar"><span>Ctrl+S tallenna</span><span>Ctrl+Z kumoa</span><span>Ctrl+Y tee uudelleen</span><span>Keltaiset solut = tärkeät osumat</span></div>
+      <div class="hintbar"><span class="keyhint">↑ ↓ ← → liiku</span><span class="keyhint">Enter / F2 muokkaa</span><span class="keyhint">Tab seuraava</span><span class="keyhint">Ctrl+C / Ctrl+V kopioi/liitä</span><span class="keyhint">Delete tyhjennä</span><span class="keyhint">H = osuma</span><span>Ctrl+S tallenna</span><span>Ctrl+Z kumoa</span></div>
     </section>
 
     <section class="bottom-grid">
@@ -74,6 +75,7 @@
 
   <dialog id="projectsDialog" class="projects-dialog"><div class="dialog-head"><div><h2>Projektit</h2><p>Projektit tallentuvat tähän selaimeen automaattisesti.</p></div><button id="btnCloseProjects" class="icon-btn">×</button></div><div class="project-dialog-actions"><button id="btnNewProject" class="btn primary">+ Uusi projekti</button><button id="btnExportProject" class="btn secondary">Vie varmuuskopio</button><label class="btn secondary file-button">Tuo varmuuskopio<input id="projectImport" type="file" accept="application/json,.json" hidden></label></div><div id="projectsList" class="projects-list"></div></dialog>
 
-  <script src="app.js?v=2.2"></script>
+  <script src="app.js?v=2.3"></script>
+  <script src="editor-enhancements.js?v=2.3"></script>
 </body>
 </html>
