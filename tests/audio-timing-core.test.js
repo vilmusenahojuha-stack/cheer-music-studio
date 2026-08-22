@@ -27,6 +27,13 @@ near(s.timelineDuration,1);near(s.bufferPlayDuration,2);
 // A clip completely before a seek point is not scheduled.
 assert.equal(T.computeClipSchedule({clip:{start:1,duration:2},playFrom:3,contextStart:0,bufferDuration:10,rate:1}),null);
 
+// A cheer handoff in the middle of an eight lands on exactly one AudioContext instant.
+// Kasi 6 / lasku 5 at 147 BPM = beat index 44 from timeline zero.
+const spb=60/147,transition=44*spb,ctxStart=200;
+const outgoing=T.computeClipSchedule({clip:{start:0,duration:transition,sourceOffset:0},playFrom:0,contextStart:ctxStart,bufferDuration:120,rate:1});
+const incoming=T.computeClipSchedule({clip:{start:transition,duration:8*spb,sourceOffset:3},playFrom:0,contextStart:ctxStart,bufferDuration:120,rate:1});
+near(outgoing.when+outgoing.timelineDuration,incoming.when,1e-9,'mid-eight handoff');
+
 // Fade envelope is deterministic at start / middle / end.
 const c={start:5,duration:4,volume:.8,fadeIn:1,fadeOut:1};
 near(T.envelopeAt(c,5),0);near(T.envelopeAt(c,5.5),.4);near(T.envelopeAt(c,7),.8);near(T.envelopeAt(c,8.5),.4);near(T.envelopeAt(c,9),0);
