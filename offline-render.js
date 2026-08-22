@@ -1,0 +1,47 @@
+(()=>{
+  const q=s=>document.querySelector(s);
+  const SAMPLE_RATE=48000;
+  const CHANNELS=2;
+  const dsp=()=>window.CheerMixDSP;
+  const timing=()=>window.CheerAudioTiming;
+  const trackFor=(project,c)=>(project.tracks||[]).find(t=>t.name===c.sourceName);
+  const projectLength=project=>Math.max(1,Number(project.duration)||150);
+  function trackKey(t){return`${t.name}::${t.size||''}::${t.duration||''}::${t.url||''}`}
+  async function decodeTracks(project,onProgress=()=>{}){
+    const C=window.AudioContext||window.webkitAudioContext;if(!C)throw new Error('Web Audio API ei ole käytettävissä.');
+    const ctx=new C();const unique=new Map();for(const c of project.audioTimeline?.clips||[]){const t=trackFor(project,c);if(t?.url)unique.set(trackKey(t),t)}
+    const buffers=new Map(),items=[...unique.entries()];let done=0;
+    try{
+      for(const[key,t]of items){onProgress({phase:'decode',done,total:items.length,name:t.name});const bytes=await fetch(t.url).then(r=>{if(!r.ok)throw new Error(`Audiota ei voitu lukea: ${t.name}`);return r.arrayBuffer()});buffers.set(key,await ctx.decodeAudioData(bytes.slice(0)));done++;onProgress({phase:'decode',done,total:items.length,name:t.name})}
+      return buffers;
+    }finally{ctx.close().catch(()=>{})}
+  }
+  function scheduleClip(offline,project,clip,buffers,duration){
+    const t=trackFor(project,clip);if(!t?.url)return false;const buffer=buffers.get(trackKey(t));if(!buffer)return false;
+    const rate=dsp()?.rateForClip?.(clip,project.trackAnalysis||{},project.targetBpm||147)||1;
+    const plan=timing()?.computeClipSchedule?.({clip,playFrom:0,contextStart:0,bufferDuration:buffer.duration,rate});if(!plan)return false;
+    const timelineDuration=Math.min(plan.timelineDuration,Math.max(0,duration-plan.timelineStart));if(!(timelineDuration>.001))return false;
+    const source=offline.createBufferSource(),clipGain=offline.createGain(),duckGain=offline.createGain();source.buffer=buffer;source.playbackRate.setValueAtTime(rate,plan.when);
+    const end=plan.timelineStart+timelineDuration,clips=project.audioTimeline?.clips||[],settings=project.mixSettings||{};
+    const envPoints=dsp()?.clipAutomationPoints?.(clip,plan.timelineStart,end)||[[plan.timelineStart,1],[end,1]];
+    const duckPoints=dsp()?.duckAutomationPoints?.(clip,clips,plan.timelineStart,end,settings)||[[plan.timelineStart,1],[end,1]];
+    dsp()?.scheduleParam?.(clipGain.gain,envPoints,plan.when,plan.timelineStart);
+    dsp()?.scheduleParam?.(duckGain.gain,duckPoints,plan.when,plan.timelineStart);
+    source.connect(clipGain).connect(duckGain).connect(offline.destination);
+    source.start(plan.when,plan.sourceOffset,timelineDuration*rate);return true;
+  }
+  async function renderProject(project,onProgress=()=>{}){
+    if(!project?.audioTimeline?.clips?.length)throw new Error('Aikajanalla ei ole clippejä.');
+    if(!window.OfflineAudioContext&&!window.webkitOfflineAudioContext)throw new Error('OfflineAudioContext ei ole käytettävissä tässä selaimessa.');
+    if(!dsp()||!timing())throw new Error('DSP- tai ajoitusydin ei ole latautunut.');
+    const missing=project.audioTimeline.clips.filter(c=>!trackFor(project,c)?.url);if(missing.length)throw new Error(`${missing.length} clipiltä puuttuu lähdeaudiotiedosto.`);
+    const duration=projectLength(project),length=Math.ceil(duration*SAMPLE_RATE),Offline=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+    onProgress({phase:'prepare',done:0,total:1});const buffers=await decodeTracks(project,onProgress);const offline=new Offline(CHANNELS,length,SAMPLE_RATE);let scheduled=0;
+    for(const c of project.audioTimeline.clips)if(scheduleClip(offline,project,c,buffers,duration))scheduled++;
+    if(!scheduled)throw new Error('Yhtään audioclippiä ei voitu ajoittaa renderöintiin.');
+    onProgress({phase:'render',done:0,total:1});const rendered=await offline.startRendering();onProgress({phase:'render',done:1,total:1});
+    if(rendered.sampleRate!==SAMPLE_RATE)throw new Error(`Offline-renderin sample rate oli ${rendered.sampleRate}, odotettiin ${SAMPLE_RATE}.`);
+    return rendered;
+  }
+  window.CheerOfflineRenderer={renderProject,SAMPLE_RATE,CHANNELS,projectLength,trackKey};
+})();
