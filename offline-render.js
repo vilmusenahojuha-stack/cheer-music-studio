@@ -1,18 +1,22 @@
 (()=>{
-  const q=s=>document.querySelector(s);
   const SAMPLE_RATE=48000;
   const CHANNELS=2;
   const dsp=()=>window.CheerMixDSP;
   const timing=()=>window.CheerAudioTiming;
   const trackFor=(project,c)=>(project.tracks||[]).find(t=>t.name===c.sourceName);
-  const projectLength=project=>Math.max(1,Number(project.duration)||150);
+  const clipEnd=c=>(Number(c?.start)||0)+Math.max(0,Number(c?.duration)||0);
+  const projectLength=project=>{
+    const declared=Math.max(0,Number(project?.duration)||0);
+    const lastClip=(project?.audioTimeline?.clips||[]).reduce((m,c)=>Math.max(m,clipEnd(c)),0);
+    return Math.max(1,declared,lastClip);
+  };
   function trackKey(t){return`${t.name}::${t.size||''}::${t.duration||''}::${t.url||''}`}
   async function decodeTracks(project,onProgress=()=>{}){
     const C=window.AudioContext||window.webkitAudioContext;if(!C)throw new Error('Web Audio API ei ole käytettävissä.');
     const ctx=new C();const unique=new Map();for(const c of project.audioTimeline?.clips||[]){const t=trackFor(project,c);if(t?.url)unique.set(trackKey(t),t)}
     const buffers=new Map(),items=[...unique.entries()];let done=0;
     try{
-      for(const[key,t]of items){onProgress({phase:'decode',done,total:items.length,name:t.name});const bytes=await fetch(t.url).then(r=>{if(!r.ok)throw new Error(`Audiota ei voitu lukea: ${t.name}`);return r.arrayBuffer()});buffers.set(key,await ctx.decodeAudioData(bytes.slice(0)));done++;onProgress({phase:'decode',done,total:items.length,name:t.name})}
+      for(const[key,t]of items){onProgress({phase:'decode',done,total:items.length,name:t.name});const bytes=await fetch(t.url).then(r=>{if(!r.ok)throw new Error(`Audiota ei voitu lukea: ${t.name}`);return r.arrayBuffer()});const decoded=await ctx.decodeAudioData(bytes.slice(0));if(!decoded||!(decoded.duration>0))throw new Error(`Audiotiedoston dekoodaus epäonnistui: ${t.name}`);buffers.set(key,decoded);done++;onProgress({phase:'decode',done,total:items.length,name:t.name})}
       return buffers;
     }finally{ctx.close().catch(()=>{})}
   }
@@ -34,6 +38,7 @@
     if(!project?.audioTimeline?.clips?.length)throw new Error('Aikajanalla ei ole clippejä.');
     if(!window.OfflineAudioContext&&!window.webkitOfflineAudioContext)throw new Error('OfflineAudioContext ei ole käytettävissä tässä selaimessa.');
     if(!dsp()||!timing())throw new Error('DSP- tai ajoitusydin ei ole latautunut.');
+    const invalid=project.audioTimeline.clips.filter(c=>!Number.isFinite(Number(c.start))||Number(c.start)<0||!Number.isFinite(Number(c.duration))||Number(c.duration)<=0||!Number.isFinite(Number(c.sourceOffset||0))||Number(c.sourceOffset||0)<0);if(invalid.length)throw new Error(`${invalid.length} clipillä on virheellinen ajoitus tai lähdekohta.`);
     const missing=project.audioTimeline.clips.filter(c=>!trackFor(project,c)?.url);if(missing.length)throw new Error(`${missing.length} clipiltä puuttuu lähdeaudiotiedosto.`);
     const duration=projectLength(project),length=Math.ceil(duration*SAMPLE_RATE),Offline=window.OfflineAudioContext||window.webkitOfflineAudioContext;
     onProgress({phase:'prepare',done:0,total:1});const buffers=await decodeTracks(project,onProgress);const offline=new Offline(CHANNELS,length,SAMPLE_RATE);let scheduled=0;
@@ -41,6 +46,7 @@
     if(!scheduled)throw new Error('Yhtään audioclippiä ei voitu ajoittaa renderöintiin.');
     onProgress({phase:'render',done:0,total:1});const rendered=await offline.startRendering();onProgress({phase:'render',done:1,total:1});
     if(rendered.sampleRate!==SAMPLE_RATE)throw new Error(`Offline-renderin sample rate oli ${rendered.sampleRate}, odotettiin ${SAMPLE_RATE}.`);
+    if(rendered.numberOfChannels!==CHANNELS)throw new Error(`Offline-renderissä oli ${rendered.numberOfChannels} kanavaa, odotettiin stereota.`);
     return rendered;
   }
   window.CheerOfflineRenderer={renderProject,SAMPLE_RATE,CHANNELS,projectLength,trackKey};
