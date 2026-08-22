@@ -1,6 +1,7 @@
 (()=>{
   const q=s=>document.querySelector(s);
   const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+  const timing=()=>window.CheerAudioTiming||null;
   const bufferCache=new Map();
   const decodePromises=new Map();
   const activeSources=new Set();
@@ -20,6 +21,11 @@
     }
     return ctx;
   }
+  function presentedContextTime(){
+    if(!ctx)return 0;
+    try{const ts=ctx.getOutputTimestamp?.();if(ts&&Number.isFinite(ts.contextTime)&&ts.contextTime>0)return ts.contextTime}catch{}
+    return ctx.currentTime;
+  }
   function trackFor(c){return(state.tracks||[]).find(t=>t.name===c.sourceName)}
   function rateFor(c){
     if(c.type!=='music')return 1;
@@ -27,7 +33,7 @@
     return Number.isFinite(bpm)&&bpm>0?clamp(target/bpm,.5,2):1;
   }
   function maxDurationFor(c,offset=c.sourceOffset||0){const t=trackFor(c),rate=rateFor(c);return Number.isFinite(t?.duration)&&t.duration>0?Math.max(0,(t.duration-Math.max(0,offset))/Math.max(.0001,rate)):Infinity}
-  function trackKey(t){return`${t.name}::${t.size||''}::${t.duration||''}`}
+  function trackKey(t){return`${t.name}::${t.size||''}::${t.duration||''}::${t.url||''}`}
 
   async function decodeTrack(t){
     if(!t?.url)throw new Error(`Audiotiedosto puuttuu: ${t?.name||'tuntematon'}`);
@@ -50,6 +56,7 @@
   }
 
   function clipEnvelopeAt(c,timelineTime){
+    if(timing()?.envelopeAt)return timing().envelopeAt(c,timelineTime);
     const start=Number(c.start)||0,dur=Math.max(0,Number(c.duration)||0),local=timelineTime-start;
     if(local<0||local>dur)return 0;
     const base=clamp(Number.isFinite(Number(c.volume))?Number(c.volume):1,0,1),fi=Math.max(0,Number(c.fadeIn)||0),fo=Math.max(0,Number(c.fadeOut)||0);let env=1;
@@ -108,19 +115,20 @@
     }
   }
   function scheduleClip(c,playFrom,ctxStart,myGeneration){
-    const clipStart=Number(c.start)||0,clipEnd=clipStart+Math.max(0,Number(c.duration)||0);if(clipEnd<=playFrom)return;
     const t=trackFor(c);if(!t?.url)return;const buffer=bufferCache.get(trackKey(t));if(!buffer)return;
     if(myGeneration!==generation||!running)return;
-    const ac=audioContext(),rate=rateFor(c),timelineStart=Math.max(playFrom,clipStart),localTimeline=Math.max(0,timelineStart-clipStart),sourceOffset=Math.max(0,(Number(c.sourceOffset)||0)+localTimeline*rate);if(sourceOffset>=buffer.duration)return;
-    const timelineDuration=Math.min(clipEnd-timelineStart,(buffer.duration-sourceOffset)/Math.max(.0001,rate));if(timelineDuration<=.001)return;
-    const when=ctxStart+Math.max(0,timelineStart-playFrom),source=ac.createBufferSource(),clipGain=ac.createGain(),duckGain=ac.createGain();
-    source.buffer=buffer;source.playbackRate.setValueAtTime(rate,when);
-    scheduleClipEnvelope(clipGain.gain,c,timelineStart,timelineStart+timelineDuration,when);
-    scheduleDucking(duckGain.gain,c,timelineStart,timelineStart+timelineDuration,when);
+    const ac=audioContext(),rate=rateFor(c);
+    const fallback=()=>{const clipStart=Number(c.start)||0,clipEnd=clipStart+Math.max(0,Number(c.duration)||0);if(clipEnd<=playFrom)return null;const timelineStart=Math.max(playFrom,clipStart),localTimeline=Math.max(0,timelineStart-clipStart),sourceOffset=Math.max(0,(Number(c.sourceOffset)||0)+localTimeline*rate);if(sourceOffset>=buffer.duration)return null;const timelineDuration=Math.min(clipEnd-timelineStart,(buffer.duration-sourceOffset)/Math.max(.0001,rate));if(timelineDuration<=.001)return null;return{timelineStart,when:ctxStart+Math.max(0,timelineStart-playFrom),sourceOffset,timelineDuration,bufferPlayDuration:timelineDuration*rate}};
+    const plan=timing()?.computeClipSchedule?timing().computeClipSchedule({clip:c,playFrom,contextStart:ctxStart,bufferDuration:buffer.duration,rate}):fallback();
+    if(!plan)return;
+    const source=ac.createBufferSource(),clipGain=ac.createGain(),duckGain=ac.createGain();
+    source.buffer=buffer;source.playbackRate.setValueAtTime(rate,plan.when);
+    scheduleClipEnvelope(clipGain.gain,c,plan.timelineStart,plan.timelineStart+plan.timelineDuration,plan.when);
+    scheduleDucking(duckGain.gain,c,plan.timelineStart,plan.timelineStart+plan.timelineDuration,plan.when);
     source.connect(clipGain).connect(duckGain).connect(masterGain);
     const item={source,clipGain,duckGain,clipId:c.id,generation:myGeneration};activeSources.add(item);
     source.onended=()=>{activeSources.delete(item);try{source.disconnect();clipGain.disconnect();duckGain.disconnect()}catch{}};
-    source.start(when,sourceOffset,timelineDuration*rate);
+    source.start(plan.when,plan.sourceOffset,plan.bufferPlayDuration);
   }
   async function scheduleAll(playFrom){
     ensure();const ac=audioContext();if(ac.state==='suspended')await ac.resume();
@@ -134,23 +142,29 @@
     if(running||starting)stop();q('#audioPlayer')?.pause();running=true;starting=true;timelineAnchor=Math.max(0,Number(playFrom)||0);contextAnchor=0;
     try{const ok=await scheduleAll(timelineAnchor);starting=false;if(!ok){running=false;return false}return true}catch(err){starting=false;running=false;contextAnchor=0;console.error(err);throw err}
   }
-  function currentTime(){if(!running||!ctx||starting||contextAnchor<=0)return Math.max(0,timelineAnchor);return Math.max(0,timelineAnchor+(ctx.currentTime-contextAnchor))}
+  function currentTime(){
+    if(!running||!ctx||starting||contextAnchor<=0)return Math.max(0,timelineAnchor);
+    const ct=presentedContextTime();
+    if(timing()?.timelineTime)return timing().timelineTime(ct,timelineAnchor,contextAnchor);
+    return ct<=contextAnchor?Math.max(0,timelineAnchor):Math.max(0,timelineAnchor+(ct-contextAnchor));
+  }
   function stop(){if(running&&ctx&&!starting&&contextAnchor>0)timelineAnchor=currentTime();running=false;starting=false;contextAnchor=0;generation++;stopAllSources()}
   async function seekTo(sec){const was=running;stop();timelineAnchor=Math.max(0,Number(sec)||0);if(was)return startAt(timelineAnchor);return true}
+  async function refreshSchedule(){const was=running&&!starting;if(!was)return true;const at=currentTime();stop();return startAt(at)}
   function isRunning(){return running&&!starting&&contextAnchor>0}
   function isStarting(){return starting}
   function clearBuffers(){bufferCache.clear();decodePromises.clear()}
-  function getClockInfo(){const ac=ctx;return{running,isRunning:isRunning(),starting,timelineAnchor,contextAnchor,currentTime:currentTime(),contextTime:ac?.currentTime||0,baseLatency:ac?.baseLatency||0,outputLatency:ac?.outputLatency||0,bufferCount:bufferCache.size,activeSources:activeSources.size}}
+  function getClockInfo(){const ac=ctx;return{running,isRunning:isRunning(),starting,timelineAnchor,contextAnchor,currentTime:currentTime(),contextTime:ac?.currentTime||0,presentedContextTime:presentedContextTime(),baseLatency:ac?.baseLatency||0,outputLatency:ac?.outputLatency||0,bufferCount:bufferCache.size,activeSources:activeSources.size}}
 
   function selectedClip(){if(window.cheerAudioEditor?.getSelectedClip)return window.cheerAudioEditor.getSelectedClip();const id=q('.audio-clip.selected')?.dataset.clip;return id?(state.audioTimeline?.clips||[]).find(c=>c.id===id):null}
   function redraw(){window.cheerAudioEditor?.renderTimeline?.();setTimeout(refreshInspector,0)}
   function nextMusicClip(c){return(state.audioTimeline?.clips||[]).filter(x=>x.type==='music'&&x.id!==c.id&&Number(x.start)>=Number(c.start)).sort((a,b)=>a.start-b.start)[0]||null}
-  function autoCrossfade(){const c=selectedClip();if(!c||c.type!=='music'){alert('Valitse ensin musiikkiclippi.');return}const next=nextMusicClip(c);if(!next){alert('Tämän clipin jälkeen ei ole seuraavaa musiikkiclippiä.');return}snapshot();const overlap=Math.min(.45,Math.max(.18,60/(Number(state.targetBpm)||147)*.8)),wantedDuration=(next.start-c.start)+overlap;c.duration=Math.max(.05,Math.min(wantedDuration,maxDurationFor(c,c.sourceOffset||0)));const actual=Math.max(0,c.start+c.duration-next.start);c.fadeOut=Math.max(.05,actual||overlap);next.fadeIn=Math.max(.05,actual||overlap);scheduleSave();redraw()}
+  function autoCrossfade(){const c=selectedClip();if(!c||c.type!=='music'){alert('Valitse ensin musiikkiclippi.');return}const next=nextMusicClip(c);if(!next){alert('Tämän clipin jälkeen ei ole seuraavaa musiikkiclippiä.');return}snapshot();const overlap=Math.min(.45,Math.max(.18,60/(Number(state.targetBpm)||147)*.8)),wantedDuration=(next.start-c.start)+overlap;c.duration=Math.max(.05,Math.min(wantedDuration,maxDurationFor(c,c.sourceOffset||0)));const actual=Math.max(0,c.start+c.duration-next.start);c.fadeOut=Math.max(.05,actual||overlap);next.fadeIn=Math.max(.05,actual||overlap);scheduleSave();redraw();refreshSchedule()}
 
   function addInspector(){
     if(q('#clipInspector'))return;const host=q('#audioWorkspace .audio-status');if(!host)return;const box=document.createElement('div');box.id='clipInspector';box.style.cssText='display:none;align-items:end;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border:1px solid rgba(148,163,184,.18);border-radius:10px;background:rgba(15,23,42,.45)';
     box.innerHTML=`<strong style="margin-right:4px">Clipin säätö</strong><label>Voimakkuus <input id="clipVolume" type="range" min="0" max="1" step="0.01" value="1"><span id="clipVolumeText">100 %</span></label><label>Lähteen alku <input id="clipSourceOffset" type="number" min="0" step="0.01" value="0" style="width:82px"> s</label><label>Fade in <input id="clipFadeIn" type="number" min="0" max="10" step="0.05" value="0" style="width:70px"> s</label><label>Fade out <input id="clipFadeOut" type="number" min="0" max="10" step="0.05" value="0" style="width:70px"> s</label><button id="btnAutoCrossfade" class="mini-btn">↔ Siirtymä seuraavaan</button><span id="clipTempoInfo" style="opacity:.8"></span>`;host.insertAdjacentElement('afterend',box);
-    const save=()=>{const c=selectedClip();if(!c)return;c.volume=clamp(Number(q('#clipVolume').value)||0,0,1);c.sourceOffset=Math.max(0,Number(q('#clipSourceOffset').value)||0);c.duration=Math.min(Number(c.duration)||0,maxDurationFor(c,c.sourceOffset));c.fadeIn=clamp(Number(q('#clipFadeIn').value)||0,0,Number(c.duration)||0);c.fadeOut=clamp(Number(q('#clipFadeOut').value)||0,0,Number(c.duration)||0);q('#clipVolumeText').textContent=`${Math.round(c.volume*100)} %`;scheduleSave();redraw()};
+    const save=()=>{const c=selectedClip();if(!c)return;c.volume=clamp(Number(q('#clipVolume').value)||0,0,1);c.sourceOffset=Math.max(0,Number(q('#clipSourceOffset').value)||0);c.duration=Math.min(Number(c.duration)||0,maxDurationFor(c,c.sourceOffset));c.fadeIn=clamp(Number(q('#clipFadeIn').value)||0,0,Number(c.duration)||0);c.fadeOut=clamp(Number(q('#clipFadeOut').value)||0,0,Number(c.duration)||0);q('#clipVolumeText').textContent=`${Math.round(c.volume*100)} %`;scheduleSave();redraw();refreshSchedule()};
     q('#clipVolume').addEventListener('input',save);q('#clipSourceOffset').addEventListener('change',save);q('#clipFadeIn').addEventListener('change',save);q('#clipFadeOut').addEventListener('change',save);q('#btnAutoCrossfade').addEventListener('click',autoCrossfade);
   }
   function refreshInspector(){
@@ -158,7 +172,7 @@
   }
   function init(){
     ensure();addInspector();q('#timelineContent')?.addEventListener('pointerdown',()=>setTimeout(refreshInspector,0));window.addEventListener('pointerup',()=>setTimeout(refreshInspector,0));window.addEventListener('keydown',e=>{if(e.key==='Delete'||e.key==='Backspace')setTimeout(refreshInspector,0)});document.addEventListener('cheer-audio-restored',()=>{stop();clearBuffers()});window.addEventListener('beforeunload',stop);refreshInspector();
-    window.cheerTimelineAudioEngine={startAt,start:startAt,stop,seekTo,currentTime,isRunning,isStarting,rateFor,refreshInspector,autoCrossfade,duckFactor,clearBuffers,getAudioContext:audioContext,preloadFor,getClockInfo};
+    window.cheerTimelineAudioEngine={startAt,start:startAt,stop,seekTo,currentTime,isRunning,isStarting,rateFor,refreshInspector,autoCrossfade,duckFactor,clearBuffers,getAudioContext:audioContext,preloadFor,getClockInfo,refreshSchedule};
   }
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
