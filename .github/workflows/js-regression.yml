@@ -33,3 +33,5 @@ jobs:
         run: node tests/audio-engine.integration.test.js
       - name: 24-bit WAV encoder tests
         run: node tests/wav24.test.js
+      - name: Lossless export architecture contract
+        run: node tests/lossless-export-contract.test.js
