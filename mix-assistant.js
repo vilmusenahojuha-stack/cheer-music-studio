@@ -1,85 +1,13 @@
 (()=>{
-  const q=s=>document.querySelector(s),clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
-  const fmt=s=>`${Math.floor(Math.max(0,s)/60)}:${String(Math.floor(Math.max(0,s)%60)).padStart(2,'0')}`;
-  function ensure(){
-    if(!state.audioTimeline)state.audioTimeline={clips:[],zoom:1,snap:'beat'};
-    state.audioTimeline.clips=Array.isArray(state.audioTimeline.clips)?state.audioTimeline.clips:[];
-    if(!state.mixSettings)state.mixSettings={autoDuck:true,duckDb:-7,duckAttack:.08,duckRelease:.18};
-  }
-  const projectLength=()=>Number(state.duration)||150;
-  const rateFor=c=>window.cheerTimelineAudioEngine?.rateFor?.(c)||1;
-  const analysisFor=name=>state.trackAnalysis?.[name]||{};
-  const musicClips=()=>state.audioTimeline.clips.filter(c=>c.type==='music').sort((a,b)=>Number(a.start)-Number(b.start));
-  const voiceClips=()=>state.audioTimeline.clips.filter(c=>c.type==='voice').sort((a,b)=>Number(a.start)-Number(b.start));
-  const overlaps=(a,b)=>Number(a.start)<Number(b.start)+Number(b.duration)&&Number(b.start)<Number(a.start)+Number(a.duration);
-  function runChecks(){
-    ensure();const issues=[],clips=state.audioTimeline.clips,tracks=state.tracks||[],trackNames=new Set(tracks.map(t=>t.name)),music=musicClips(),voices=voiceClips();
-    if(!tracks.length)issues.push({level:'error',text:'Audiokirjasto on tyhjä.'});
-    if(!music.length)issues.push({level:'error',text:'Aikajanalla ei ole yhtään musiikkiclippiä.'});
-    for(const c of clips){
-      if(!trackNames.has(c.sourceName))issues.push({level:'error',text:`Clipiltä puuttuu lähdetiedosto: ${c.sourceName||'nimetön'}.`});
-      if(!Number.isFinite(Number(c.start))||Number(c.start)<0)issues.push({level:'error',text:`Clipin ${c.sourceName||'nimetön'} aloitusaika on virheellinen.`});
-      if(!Number.isFinite(Number(c.duration))||Number(c.duration)<=0)issues.push({level:'error',text:`Clipin ${c.sourceName||'nimetön'} kesto on virheellinen.`});
-      if(Number(c.start)+Number(c.duration)>projectLength()+.05)issues.push({level:'warn',text:`${c.sourceName} jatkuu projektin (${fmt(projectLength())}) yli.`});
-      if((Number(c.fadeIn)||0)+(Number(c.fadeOut)||0)>Number(c.duration)+.01)issues.push({level:'warn',text:`${c.sourceName}: fadejen yhteiskesto on clipin kestoa pidempi.`});
-      if(c.type==='music'){
-        const a=analysisFor(c.sourceName),bpm=Number(a.bpm||a.autoBpm),r=rateFor(c);
-        if(!Number.isFinite(bpm)||bpm<=0)issues.push({level:'warn',text:`${c.sourceName}: BPM puuttuu, joten tempoa ei voida sovittaa luotettavasti.`});
-        if(a.oneOffset==null)issues.push({level:'warn',text:`${c.sourceName}: 1-laskua ei ole asetettu.`});
-        if(r<=.55||r>=1.8)issues.push({level:'warn',text:`${c.sourceName}: temposovitus ${r.toFixed(2)}× on hyvin suuri ja kannattaa kuunnella tarkasti.`});
-      }
-    }
-    for(let i=0;i<music.length-1;i++){
-      const a=music[i],b=music[i+1],end=Number(a.start)+Number(a.duration),gap=Number(b.start)-end;
-      if(gap>.08)issues.push({level:'warn',text:`Musiikkiin jää ${gap.toFixed(2)} s tyhjä kohta ennen kappaletta ${b.sourceName}.`});
-      if(gap<-1.2)issues.push({level:'warn',text:`Musiikkiclipit ${a.sourceName} ja ${b.sourceName} ovat päällekkäin ${Math.abs(gap).toFixed(2)} s.`});
-      if(gap<=0&&gap>-1.2){const overlap=Math.abs(gap);if(overlap>.06&&((Number(a.fadeOut)||0)<overlap*.5||(Number(b.fadeIn)||0)<overlap*.5))issues.push({level:'info',text:`Siirtymä ${a.sourceName} → ${b.sourceName}: crossfadea voi vielä pehmentää.`})}
-    }
-    const voiceOverMusic=voices.some(v=>music.some(m=>overlaps(v,m)));
-    if(voiceOverMusic&&state.mixSettings.autoDuck===false)issues.push({level:'info',text:'Voiceover osuu musiikin päälle, mutta automaattinen musiikin ducking on pois päältä.'});
-    const errors=issues.filter(x=>x.level==='error').length,warns=issues.filter(x=>x.level==='warn').length;
-    return{issues,errors,warns,ok:errors===0&&warns===0};
-  }
-  function autoImprove(){
-    ensure();const music=musicClips();if(music.length<2){alert('Automaattinen siirtymien parannus tarvitsee vähintään kaksi musiikkiclippiä.');return}
-    if(typeof snapshot==='function')snapshot();let changed=0;const beat=60/(Number(state.targetBpm)||147),wanted=clamp(beat*.75,.18,.45);
-    for(let i=0;i<music.length-1;i++){
-      const a=music[i],b=music[i+1],gap=Number(b.start)-(Number(a.start)+Number(a.duration));
-      if(gap>.02&&gap<=wanted+.25){a.duration+=gap+wanted;a.fadeOut=wanted;b.fadeIn=wanted;changed++}
-      else if(gap<=0&&gap>=-1.2){const overlap=Math.abs(gap),fade=clamp(overlap||wanted,.12,.6);a.fadeOut=Math.max(Number(a.fadeOut)||0,fade);b.fadeIn=Math.max(Number(b.fadeIn)||0,fade);changed++}
-    }
-    if(changed){scheduleSave();window.cheerAudioEditor?.renderTimeline?.();window.cheerTimelineAudioEngine?.refreshInspector?.()}
-    renderReport(runChecks());
-  }
-  function applySmartMix(){
-    ensure();if(typeof snapshot==='function')snapshot();
-    state.mixSettings.autoDuck=true;state.mixSettings.duckDb=-7;state.mixSettings.duckAttack=.08;state.mixSettings.duckRelease=.18;
-    for(const c of state.audioTimeline.clips){
-      if(c.type==='voice'&&!Number.isFinite(Number(c.volume)))c.volume=1;
-      if(c.type==='fx'&&!Number.isFinite(Number(c.volume)))c.volume=.9;
-      if(c.type==='music'&&!Number.isFinite(Number(c.volume)))c.volume=1;
-    }
-    const music=musicClips(),beat=60/(Number(state.targetBpm)||147),wanted=clamp(beat*.75,.18,.45);
-    for(let i=0;i<music.length-1;i++){
-      const a=music[i],b=music[i+1],gap=Number(b.start)-(Number(a.start)+Number(a.duration));
-      if(gap<=.02&&gap>=-1.2){const overlap=Math.abs(gap),fade=clamp(overlap||wanted,.12,.6);a.fadeOut=Math.max(Number(a.fadeOut)||0,fade);b.fadeIn=Math.max(Number(b.fadeIn)||0,fade)}
-    }
-    scheduleSave();syncControls();window.cheerAudioEditor?.renderTimeline?.();renderReport(runChecks());
-  }
-  function renderReport(result){
-    const host=q('#mixAssistantReport');if(!host)return;const badge=result.errors?`⛔ ${result.errors} virhettä`:result.warns?`⚠ ${result.warns} huomautusta`:'✅ Valmis tarkistukseen';
-    host.innerHTML=`<div class="mix-report-head"><strong>${badge}</strong><span>${state.audioTimeline.clips.length} clippiä · ${musicClips().length} musiikkiclippiä</span></div>${result.issues.length?`<div class="mix-issues">${result.issues.map(x=>`<div class="mix-issue ${x.level}">${x.level==='error'?'⛔':x.level==='warn'?'⚠':'ℹ'} ${escapeHtml(x.text)}</div>`).join('')}</div>`:'<div class="mix-ok">Perusrakenne, lähdetiedostot, BPM/1-laskut ja musiikkisiirtymät ovat kunnossa.</div>'}`;
-  }
-  function syncControls(){ensure();const on=q('#mixAutoDuck'),db=q('#mixDuckDb');if(on)on.checked=state.mixSettings.autoDuck!==false;if(db)db.value=String(Number(state.mixSettings.duckDb)||-7)}
-  function addUi(){
-    if(q('#mixAssistant'))return;const workspace=q('#audioWorkspace');if(!workspace)return;const panel=document.createElement('section');panel.id='mixAssistant';panel.className='mix-assistant';
-    panel.innerHTML=`<div class="mix-assistant-top"><div><h3>Mix-tarkistus</h3><p>Tarkistaa miksauksen ja auttaa viimeistelemään siirtymät sekä voiceoverien kuuluvuuden.</p></div><div class="mix-assistant-actions"><button id="btnMixCheck" class="mini-btn">✓ Tarkista miksaus</button><button id="btnMixImprove" class="mini-btn">↔ Paranna siirtymät</button><button id="btnSmartMix" class="mini-btn">✨ Älykäs miksaus</button></div></div><div class="mix-smart-controls"><label><input id="mixAutoDuck" type="checkbox"> Laske musiikkia automaattisesti voiceoverin alla</label><label>Ducking <select id="mixDuckDb"><option value="-5">-5 dB</option><option value="-7">-7 dB</option><option value="-9">-9 dB</option><option value="-12">-12 dB</option></select></label></div><div id="mixAssistantReport" class="mix-assistant-report"></div>`;
-    workspace.appendChild(panel);q('#btnMixCheck').addEventListener('click',()=>renderReport(runChecks()));q('#btnMixImprove').addEventListener('click',autoImprove);q('#btnSmartMix').addEventListener('click',applySmartMix);
-    q('#mixAutoDuck').addEventListener('change',e=>{ensure();state.mixSettings.autoDuck=e.target.checked;scheduleSave();renderReport(runChecks())});
-    q('#mixDuckDb').addEventListener('change',e=>{ensure();state.mixSettings.duckDb=clamp(Number(e.target.value)||-7,-18,0);scheduleSave()});
-    syncControls();renderReport(runChecks());
-  }
-  const style=document.createElement('style');style.textContent=`.mix-assistant{margin-top:16px;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:12px;background:rgba(15,23,42,.42)}.mix-assistant-top{display:flex;justify-content:space-between;gap:16px;align-items:center}.mix-assistant h3{margin:0 0 4px}.mix-assistant p{margin:0;opacity:.75}.mix-assistant-actions,.mix-smart-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.mix-smart-controls{margin-top:10px;padding:9px 10px;border-radius:9px;background:rgba(30,41,59,.42)}.mix-smart-controls label{display:flex;align-items:center;gap:6px}.mix-assistant-report{margin-top:12px}.mix-report-head{display:flex;justify-content:space-between;gap:12px;padding:9px 11px;border-radius:9px;background:rgba(30,41,59,.65)}.mix-issues{display:grid;gap:6px;margin-top:8px}.mix-issue{padding:8px 10px;border-radius:8px;background:rgba(30,41,59,.45)}.mix-issue.error{border-left:3px solid #ef4444}.mix-issue.warn{border-left:3px solid #f59e0b}.mix-issue.info{border-left:3px solid #38bdf8}.mix-ok{padding:10px;margin-top:8px;border-radius:8px;background:rgba(16,185,129,.10)}@media(max-width:800px){.mix-assistant-top,.mix-report-head{align-items:flex-start;flex-direction:column}}`;document.head.appendChild(style);
-  function init(){ensure();addUi();document.addEventListener('cheer-audio-restored',()=>setTimeout(()=>{syncControls();renderReport(runChecks())},50));window.cheerMixAssistant={runChecks,renderReport,autoImprove,applySmartMix}}
-  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+const q=s=>document.querySelector(s),clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+function ensure(){if(!state.audioTimeline)state.audioTimeline={clips:[],zoom:1,snap:'beat'};state.audioTimeline.clips=Array.isArray(state.audioTimeline.clips)?state.audioTimeline.clips:[];if(!state.mixSettings)state.mixSettings={autoDuck:true,duckDb:-7,duckAttack:.08,duckRelease:.18,transitionMode:'cheer'}}
+const music=()=>state.audioTimeline.clips.filter(c=>c.type==='music').sort((a,b)=>Number(a.start)-Number(b.start));
+function improve(){ensure();const m=music();if(m.length<2){alert('Lisää vähintään kaksi musiikkia aikajanalle.');return}if(typeof snapshot==='function')snapshot();const beat=60/(Number(state.targetBpm)||147);for(let i=0;i<m.length-1;i++){const a=m[i],b=m[i+1],boundary=Number(b.start),end=Number(a.start)+Number(a.duration),gap=boundary-end;/* Cheer-mix: preserve the exact count boundary. Tiny crossfade removes clicks, longer overlap only when clips already overlap. */if(gap>0&&gap<=beat*.65){a.duration+=gap;a.fadeOut=Math.max(Number(a.fadeOut)||0,.035);b.fadeIn=Math.max(Number(b.fadeIn)||0,.025)}else if(gap>=-.06&&gap<=.02){a.fadeOut=Math.max(Number(a.fadeOut)||0,.045);b.fadeIn=Math.max(Number(b.fadeIn)||0,.03)}else if(gap<-.06){const ov=Math.min(Math.abs(gap),beat*.75);a.fadeOut=Math.max(Number(a.fadeOut)||0,clamp(ov,.08,.32));b.fadeIn=Math.max(Number(b.fadeIn)||0,clamp(ov,.06,.26))}a.transitionOut='cheer';b.transitionIn='cheer'}scheduleSave();window.cheerAudioEditor?.renderTimeline?.();render();}
+function smart(){ensure();state.mixSettings.autoDuck=true;state.mixSettings.transitionMode='cheer';for(const c of state.audioTimeline.clips){if(!Number.isFinite(Number(c.volume)))c.volume=c.type==='fx'?.9:1}improve()}
+function checks(){ensure();const issues=[],m=music(),names=new Set((state.tracks||[]).map(t=>t.name));for(const c of state.audioTimeline.clips){if(!names.has(c.sourceName))issues.push('Lähdetiedosto puuttuu: '+c.sourceName);if(c.type==='music'){const a=state.trackAnalysis?.[c.sourceName]||{};if(!Number(a.bpm||a.autoBpm))issues.push('BPM puuttuu: '+c.sourceName);if(a.oneOffset==null)issues.push('1-lasku puuttuu: '+c.sourceName)}}for(let i=0;i<m.length-1;i++){const gap=Number(m[i+1].start)-(Number(m[i].start)+Number(m[i].duration));if(gap>.08)issues.push(`Hiljainen aukko ${gap.toFixed(2)} s: ${m[i].sourceName} → ${m[i+1].sourceName}`)}return issues}
+function render(){const host=q('#mixAssistantReport');if(!host)return;const a=checks();host.innerHTML=a.length?`<strong>⚠ ${a.length} tarkistettavaa</strong><div class="mix-issues">${a.map(x=>`<div class="mix-issue warn">⚠ ${escapeHtml(x)}</div>`).join('')}</div>`:'<div class="mix-ok">✅ Musiikkien rajat, BPM ja 1-laskut ovat kunnossa.</div>'}
+function addUi(){if(q('#mixAssistant'))return;const w=q('#audioWorkspace');if(!w)return;const p=document.createElement('section');p.id='mixAssistant';p.className='mix-assistant';p.innerHTML=`<div class="mix-assistant-top"><div><h3>Siirtymät</h3><p>Cheer-tila pitää kappaleenvaihdon oikeassa laskussa ja pehmentää vain tarvittavan määrän.</p></div><div class="mix-assistant-actions"><button id="btnMixCheck" class="mini-btn">✓ Tarkista</button><button id="btnMixImprove" class="mini-btn">⚡ Tee cheer-siirtymät</button></div></div><div class="mix-smart-controls"><label><input id="mixAutoDuck" type="checkbox"> Laske musiikkia voiceoverin alla</label><label>Ducking <select id="mixDuckDb"><option>-5</option><option selected>-7</option><option>-9</option><option>-12</option></select> dB</label></div><div id="mixAssistantReport" class="mix-assistant-report"></div>`;w.appendChild(p);q('#btnMixCheck').onclick=render;q('#btnMixImprove').onclick=improve;q('#mixAutoDuck').checked=state.mixSettings.autoDuck!==false;q('#mixAutoDuck').onchange=e=>{state.mixSettings.autoDuck=e.target.checked;scheduleSave()};q('#mixDuckDb').value=String(Number(state.mixSettings.duckDb)||-7);q('#mixDuckDb').onchange=e=>{state.mixSettings.duckDb=Number(e.target.value)||-7;scheduleSave()};render()}
+const st=document.createElement('style');st.textContent='.mix-assistant{margin-top:16px;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:12px;background:rgba(15,23,42,.42)}.mix-assistant-top,.mix-assistant-actions,.mix-smart-controls{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.mix-assistant h3{margin:0 0 4px}.mix-assistant p{margin:0;opacity:.75}.mix-smart-controls{justify-content:flex-start;margin-top:10px}.mix-assistant-report{margin-top:10px}.mix-issues{display:grid;gap:5px;margin-top:7px}.mix-issue,.mix-ok{padding:8px 10px;border-radius:8px;background:rgba(30,41,59,.45)}';document.head.appendChild(st);
+function init(){ensure();addUi();document.addEventListener('cheer-audio-restored',()=>setTimeout(render,60));window.cheerMixAssistant={runChecks:()=>({issues:checks().map(text=>({level:'warn',text})),errors:0,warns:checks().length,ok:!checks().length}),renderReport:render,autoImprove:improve,applySmartMix:smart}}
+document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
