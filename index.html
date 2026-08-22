@@ -6,15 +6,15 @@
   <meta name="theme-color" content="#0b1220">
   <title>Cheer Music Studio</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=3.7">
-  <link rel="stylesheet" href="editor-enhancements.css?v=3.7">
-  <link rel="stylesheet" href="audio-editor.css?v=3.7">
-  <link rel="stylesheet" href="audio-analysis.css?v=3.7">
+  <link rel="stylesheet" href="styles.css?v=3.8">
+  <link rel="stylesheet" href="editor-enhancements.css?v=3.8">
+  <link rel="stylesheet" href="audio-editor.css?v=3.8">
+  <link rel="stylesheet" href="audio-analysis.css?v=3.8">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="eyebrow">CHEER MUSIC STUDIO · DESKTOP V3.7</div>
+      <div class="eyebrow">CHEER MUSIC STUDIO · DESKTOP V3.8</div>
       <input id="projectName" class="project-name" value="Uusi cheer mix" aria-label="Projektin nimi">
     </div>
     <div class="top-actions">
@@ -74,7 +74,7 @@
 
     <section id="audioWorkspace" class="panel audio-workspace">
       <div class="section-head">
-        <div><h2>Audioeditori</h2><p>8-count-lukittu aikajana. V3.7 lisää miksauksen automaattisen laatutarkistuksen ja turvallisen siirtymäavustimen ennen lopullista vientiä.</p></div>
+        <div><h2>Audioeditori</h2><p>8-count-lukittu aikajana. V3.8 lisää ensimmäisen oikean WAV-viennin, joka käyttää samaa pitch-preserving temposovitusta kuin aikajanan toisto.</p></div>
         <div class="audio-toolbar">
           <div class="tool-group clip-menu"><label>Lähde</label><select id="clipSource"><option value="">Valitse lisätty tiedosto…</option></select><label>Raita</label><select id="clipType"><option value="music">Musiikki</option><option value="voice">Voiceover</option><option value="fx">FX</option></select><button id="btnAddClip" class="mini-btn">+ Lisää clippi</button><button id="btnDeleteClip" class="mini-btn danger-text">Poista clippi</button></div>
           <div class="tool-group"><button id="btnTimelineHome" class="mini-btn">|◀</button><button id="btnTimelinePlay" class="mini-btn">▶</button><span id="transportTime" class="transport-time">0:00.0</span></div>
@@ -108,14 +108,15 @@
 
   <dialog id="projectsDialog" class="projects-dialog"><div class="dialog-head"><div><h2>Projektit</h2><p>Projektit tallentuvat tähän selaimeen automaattisesti.</p></div><button id="btnCloseProjects" class="icon-btn">×</button></div><div class="project-dialog-actions"><button id="btnNewProject" class="btn primary">+ Uusi projekti</button><button id="btnExportProject" class="btn secondary">Vie varmuuskopio</button><label class="btn secondary file-button">Tuo varmuuskopio<input id="projectImport" type="file" accept="application/json,.json" hidden></label></div><div id="projectsList" class="projects-list"></div></dialog>
 
-  <script src="app.js?v=3.7"></script>
-  <script src="persistent-audio.js?v=3.7"></script>
-  <script src="editor-enhancements.js?v=3.7"></script>
-  <script src="audio-editor.js?v=3.7"></script>
-  <script src="audio-analysis.js?v=3.7"></script>
-  <script src="eight-music.js?v=3.7"></script>
-  <script src="eight-overlays.js?v=3.7"></script>
-  <script src="timeline-audio-engine.js?v=3.7"></script>
-  <script src="mix-assistant.js?v=3.7"></script>
+  <script src="app.js?v=3.8"></script>
+  <script src="persistent-audio.js?v=3.8"></script>
+  <script src="editor-enhancements.js?v=3.8"></script>
+  <script src="audio-editor.js?v=3.8"></script>
+  <script src="audio-analysis.js?v=3.8"></script>
+  <script src="eight-music.js?v=3.8"></script>
+  <script src="eight-overlays.js?v=3.8"></script>
+  <script src="timeline-audio-engine.js?v=3.8"></script>
+  <script src="mix-assistant.js?v=3.8"></script>
+  <script src="mix-export.js?v=3.8"></script>
 </body>
 </html>
