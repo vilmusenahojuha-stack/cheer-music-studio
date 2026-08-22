@@ -27,6 +27,8 @@ jobs:
           done < <(find . -type f -name '*.js' -not -path './node_modules/*' -print0)
       - name: Audio timing regression tests
         run: node tests/audio-timing-core.test.js
+      - name: Shared DSP regression tests
+        run: node tests/mix-dsp-core.test.js
       - name: AudioContext engine integration tests
         run: node tests/audio-engine.integration.test.js
       - name: 24-bit WAV encoder tests
