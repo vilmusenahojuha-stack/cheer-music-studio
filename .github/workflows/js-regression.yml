@@ -31,6 +31,8 @@ jobs:
         run: node tests/mix-dsp-core.test.js
       - name: AudioContext engine integration tests
         run: node tests/audio-engine.integration.test.js
+      - name: Offline renderer integration tests
+        run: node tests/offline-render.integration.test.js
       - name: 24-bit WAV encoder tests
         run: node tests/wav24.test.js
       - name: Lossless export architecture contract
