@@ -3,6 +3,7 @@
   let exporting=false;
   const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
   const fmt=s=>`${Math.floor(Math.max(0,s)/60)}:${String(Math.floor(Math.max(0,s)%60)).padStart(2,'0')}`;
+  const db=v=>v>0?20*Math.log10(v):-Infinity;
 
   function ensure(){
     if(!state.audioTimeline) state.audioTimeline={clips:[],zoom:1,snap:'beat'};
@@ -68,8 +69,27 @@
     const stopTimer=setTimeout(()=>{try{audio.pause()}catch{}},stopMs);
     cleanup.push(()=>{clearTimeout(startTimer);clearTimeout(stopTimer);try{audio.pause();audio.removeAttribute('src');audio.load();source.disconnect();gain.disconnect()}catch{}});
   }
+  function analyzeBuffer(buffer){
+    let peak=0,sum=0,count=0;
+    const channels=Math.min(2,buffer.numberOfChannels);
+    for(let c=0;c<channels;c++){
+      const data=buffer.getChannelData(c);
+      for(let i=0;i<data.length;i++){
+        const a=Math.abs(data[i]);if(a>peak)peak=a;
+        sum+=data[i]*data[i];count++;
+      }
+    }
+    const rms=count?Math.sqrt(sum/count):0;
+    return {peak,rms,peakDb:db(peak),rmsDb:db(rms)};
+  }
+  function normalizationGain(stats){
+    if(!stats?.peak||stats.peak<0.0001)return 1;
+    const target=Math.pow(10,-1/20); // -1 dBFS peak ceiling
+    const raw=target/stats.peak;
+    return clamp(raw,0.25,Math.pow(10,6/20)); // never add more than +6 dB
+  }
   function writeString(view,offset,text){for(let i=0;i<text.length;i++)view.setUint8(offset+i,text.charCodeAt(i))}
-  function audioBufferToWav(buffer){
+  function audioBufferToWav(buffer,gain=1){
     const channels=Math.min(2,buffer.numberOfChannels),sampleRate=buffer.sampleRate,length=buffer.length;
     const bytesPerSample=2,blockAlign=channels*bytesPerSample,dataSize=length*blockAlign;
     const ab=new ArrayBuffer(44+dataSize),view=new DataView(ab);
@@ -77,10 +97,16 @@
     view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,channels,true);view.setUint32(24,sampleRate,true);
     view.setUint32(28,sampleRate*blockAlign,true);view.setUint16(32,blockAlign,true);view.setUint16(34,16,true);writeString(view,36,'data');view.setUint32(40,dataSize,true);
     const data=[];for(let c=0;c<channels;c++)data.push(buffer.getChannelData(c));
-    let p=44;for(let i=0;i<length;i++)for(let c=0;c<channels;c++){const s=clamp(data[c][i],-1,1);view.setInt16(p,s<0?s*0x8000:s*0x7fff,true);p+=2}
+    let p=44;for(let i=0;i<length;i++)for(let c=0;c<channels;c++){const s=clamp(data[c][i]*gain,-1,1);view.setInt16(p,s<0?s*0x8000:s*0x7fff,true);p+=2}
     return new Blob([ab],{type:'audio/wav'});
   }
   function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
+  function resultText(stats,gain){
+    const finalPeak=stats.peak*gain;
+    const finalRms=stats.rms*gain;
+    const gdb=db(gain);
+    return `Valmis: ${safeName()}.wav · peak ${db(finalPeak).toFixed(1)} dBFS · RMS ${db(finalRms).toFixed(1)} dBFS · master ${gdb>=0?'+':''}${gdb.toFixed(1)} dB`;
+  }
 
   async function exportWav(){
     if(exporting)return;
@@ -96,9 +122,12 @@
       ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000});
       await ctx.resume();
       const dest=ctx.createMediaStreamDestination();
-      const master=ctx.createGain();master.gain.value=.92;master.connect(dest);
+      const master=ctx.createGain();master.gain.value=.98;
+      const limiter=ctx.createDynamicsCompressor();
+      limiter.threshold.value=-3;limiter.knee.value=2;limiter.ratio.value=12;limiter.attack.value=.003;limiter.release.value=.12;
+      master.connect(limiter).connect(dest);
       const mime=mimeType();
-      recorder=new MediaRecorder(dest.stream,mime?{mimeType:mime,audioBitsPerSecond:192000}:{audioBitsPerSecond:192000});
+      recorder=new MediaRecorder(dest.stream,mime?{mimeType:mime,audioBitsPerSecond:256000}:{audioBitsPerSecond:256000});
       const chunks=[];recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};
       const done=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=e=>reject(e.error||new Error('Tallennus epäonnistui'))});
       const duration=projectLength(),lead=.30,origin=ctx.currentTime+lead;
@@ -112,12 +141,14 @@
       setStatus(`Valmistellaan WAV-vientiä (${fmt(duration)})…`,0);
       await new Promise(r=>setTimeout(r,(lead+duration+.18)*1000));
       recorder.stop();await done;clearInterval(progressTimer);progressTimer=null;
-      setStatus('Muunnetaan WAV-tiedostoksi…',99);
+      setStatus('Analysoidaan peak-taso ja viimeistellään WAV…',99);
       const recorded=new Blob(chunks,{type:recorder.mimeType||mime||'audio/webm'});
       try{
         const decoded=await ctx.decodeAudioData((await recorded.arrayBuffer()).slice(0));
-        const wav=audioBufferToWav(decoded);download(wav,`${safeName()}.wav`);
-        setStatus(`Valmis: ${safeName()}.wav`,100);
+        const stats=analyzeBuffer(decoded);
+        const gain=normalizationGain(stats);
+        const wav=audioBufferToWav(decoded,gain);download(wav,`${safeName()}.wav`);
+        setStatus(resultText(stats,gain),100);
       }catch(err){
         console.warn('WAV conversion failed, downloading recorder format',err);
         const ext=(recorded.type||'').includes('ogg')?'ogg':'webm';download(recorded,`${safeName()}.${ext}`);
@@ -137,11 +168,11 @@
     if(q('#mixExport'))return;
     const host=q('#mixAssistant')||q('#audioWorkspace');if(!host)return;
     const panel=document.createElement('section');panel.id='mixExport';panel.className='mix-export';
-    panel.innerHTML=`<div class="mix-export-top"><div><h3>Lopullinen vienti</h3><p>WAV renderöidään selaimessa reaaliajassa. Musiikin temposovitus käyttää samaa pitch-preserving-toistoa kuin aikajanan kuuntelu.</p></div><button id="btnExportWav" class="btn primary">⬇ Vie WAV</button></div><div class="mix-export-progress-shell"><div id="mixExportProgress" class="mix-export-progress"></div></div><div id="mixExportStatus" class="mix-export-status">Valmis vientiin.</div>`;
+    panel.innerHTML=`<div class="mix-export-top"><div><h3>Lopullinen vienti</h3><p>48 kHz WAV renderöidään selaimessa reaaliajassa. Master-limiter estää pahimmat yliohjaukset ja lopputulos viimeistellään turvalliseen -1 dBFS peak-tasoon.</p></div><button id="btnExportWav" class="btn primary">⬇ Vie WAV</button></div><div class="mix-export-progress-shell"><div id="mixExportProgress" class="mix-export-progress"></div></div><div id="mixExportStatus" class="mix-export-status">Valmis vientiin.</div>`;
     host.insertAdjacentElement('afterend',panel);
     q('#btnExportWav').addEventListener('click',exportWav);
   }
   const style=document.createElement('style');style.textContent=`.mix-export{margin-top:14px;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:12px;background:rgba(15,23,42,.42)}.mix-export-top{display:flex;justify-content:space-between;gap:16px;align-items:center}.mix-export h3{margin:0 0 4px}.mix-export p{margin:0;opacity:.75;max-width:800px}.mix-export-progress-shell{height:7px;margin-top:12px;border-radius:999px;overflow:hidden;background:rgba(148,163,184,.13)}.mix-export-progress{height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#38bdf8);transition:width .2s}.mix-export-status{margin-top:7px;font-size:.9rem;opacity:.8}@media(max-width:800px){.mix-export-top{align-items:flex-start;flex-direction:column}}`;document.head.appendChild(style);
-  function init(){ensure();addUi();window.cheerMixExport={exportWav,validate,audioBufferToWav}}
+  function init(){ensure();addUi();window.cheerMixExport={exportWav,validate,audioBufferToWav,analyzeBuffer,normalizationGain}}
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
