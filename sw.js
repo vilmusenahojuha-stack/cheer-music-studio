@@ -1,5 +1,5 @@
-const CACHE='cheer-music-studio-v3.6';
-const ASSETS=['./','./index.html','./styles.css?v=3.6','./editor-enhancements.css?v=3.6','./audio-editor.css?v=3.6','./audio-analysis.css?v=3.6','./app.js?v=3.6','./persistent-audio.js?v=3.6','./editor-enhancements.js?v=3.6','./audio-editor.js?v=3.6','./audio-analysis.js?v=3.6','./eight-music.js?v=3.6','./eight-overlays.js?v=3.6','./timeline-audio-engine.js?v=3.6','./manifest.json'];
+const CACHE='cheer-music-studio-v3.7';
+const ASSETS=['./','./index.html','./styles.css?v=3.7','./editor-enhancements.css?v=3.7','./audio-editor.css?v=3.7','./audio-analysis.css?v=3.7','./app.js?v=3.7','./persistent-audio.js?v=3.7','./editor-enhancements.js?v=3.7','./audio-editor.js?v=3.7','./audio-analysis.js?v=3.7','./eight-music.js?v=3.7','./eight-overlays.js?v=3.7','./timeline-audio-engine.js?v=3.7','./mix-assistant.js?v=3.7','./manifest.json'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)));self.skipWaiting()});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim()});
 self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;event.respondWith(fetch(event.request).then(response=>{const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response}).catch(()=>caches.match(event.request).then(cached=>cached||caches.match('./index.html'))))});
