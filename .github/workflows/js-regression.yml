@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  syntax:
+  syntax-and-timing:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,3 +25,5 @@ jobs:
             echo "Checking $file"
             node --check "$file"
           done < <(find . -type f -name '*.js' -not -path './node_modules/*' -print0)
+      - name: Audio timing regression tests
+        run: node tests/audio-timing-core.test.js
