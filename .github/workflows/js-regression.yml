@@ -29,6 +29,8 @@ jobs:
         run: node tests/audio-timing-core.test.js
       - name: Shared DSP regression tests
         run: node tests/mix-dsp-core.test.js
+      - name: Pitch-preserving time-stretch tests
+        run: node tests/time-stretch-core.test.js
       - name: AudioContext engine integration tests
         run: node tests/audio-engine.integration.test.js
       - name: Offline renderer integration tests
