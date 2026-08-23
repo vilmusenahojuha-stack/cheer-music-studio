@@ -11,7 +11,8 @@
   }
   function floatToInt24(v){
     const x=clamp(Number.isFinite(v)?v:0,-1,1);
-    return x<=-1?-0x800000:Math.round(x*0x7fffff);
+    if(x<=-1)return-0x800000;if(x>=1)return 0x7fffff;
+    return x<0?Math.round(x*0x800000):Math.round(x*0x7fffff);
   }
   function writeInt24LE(view,offset,value){
     let v=value;if(v<0)v+=0x1000000;

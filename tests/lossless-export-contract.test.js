@@ -12,8 +12,10 @@ assert.ok(/SAMPLE_RATE=48000/.test(offline),'offline renderer must be fixed at 4
 assert.ok(/CHANNELS=2/.test(offline),'offline renderer must be stereo');
 assert.ok(/OfflineAudioContext/.test(offline),'offline renderer must use OfflineAudioContext');
 assert.ok(!/MediaRecorder/.test(offline),'offline renderer must not use MediaRecorder');
+assert.ok(/CheerTimeStretch/.test(offline),'offline renderer must use the shared pitch-preserving time-stretch core');
 
-const dsp=index.indexOf('mix-dsp-core.js'),timing=index.indexOf('audio-timing-core.js'),wav=index.indexOf('wav24.js'),renderer=index.indexOf('offline-render.js'),exp=index.indexOf('mix-export.js');
-assert.ok(dsp>=0&&timing>dsp,'shared DSP must load before timing/playback core');
+const dsp=index.indexOf('mix-dsp-core.js'),stretch=index.indexOf('time-stretch-core.js'),timing=index.indexOf('audio-timing-core.js'),timeline=index.indexOf('timeline-audio-engine.js'),wav=index.indexOf('wav24.js'),renderer=index.indexOf('offline-render.js'),exp=index.indexOf('mix-export.js');
+assert.ok(dsp>=0&&stretch>dsp&&timing>stretch,'shared DSP and time-stretch must load before timing/playback core');
+assert.ok(timeline>timing,'timeline AudioContext engine must load after shared timing/stretch cores');
 assert.ok(wav>=0&&renderer>wav&&exp>renderer,'WAV encoder and offline renderer must load before export UI');
-console.log('lossless-export-contract: OfflineAudioContext -> 48 kHz stereo PCM -> 24-bit WAV path enforced');
+console.log('lossless-export-contract: shared pitch stretch + OfflineAudioContext -> 48 kHz stereo PCM -> 24-bit WAV path enforced');
