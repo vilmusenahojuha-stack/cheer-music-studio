@@ -35,6 +35,8 @@ jobs:
         run: node tests/audio-engine.integration.test.js
       - name: Offline renderer integration tests
         run: node tests/offline-render.integration.test.js
+      - name: Preview/export pitch-preserving integration
+        run: node tests/pitch-preserving.integration.test.js
       - name: 24-bit WAV encoder tests
         run: node tests/wav24.test.js
       - name: Lossless export architecture contract
