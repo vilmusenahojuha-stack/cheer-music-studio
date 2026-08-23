@@ -47,3 +47,42 @@
   }
   return{clamp,num,rateForClip,clipEnvelopeAt,voiceWindows,duckFactorAt,clipAutomationPoints,duckAutomationPoints,scheduleParam};
 });
+
+((root,factory)=>{const api=factory();if(typeof module==='object'&&module.exports)module.exports.CheerTimeStretch=api;else root.CheerTimeStretch=api})(typeof globalThis!=='undefined'?globalThis:this,()=>{
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  function nextPow2(n){let p=1;while(p<n)p<<=1;return p}
+  function chooseWindow(sampleRate){return clamp(nextPow2(Math.round(sampleRate*.07)),2048,8192)}
+  function monoAt(channels,index){let s=0;for(let c=0;c<channels.length;c++)s+=channels[c][index]||0;return s/Math.max(1,channels.length)}
+  function correlation(channels,prevStart,candStart,overlap,step=16){
+    let dot=0,a2=0,b2=0;
+    const prevOverlap=prevStart+overlap;
+    for(let i=0;i<overlap;i+=step){const a=monoAt(channels,prevOverlap+i),b=monoAt(channels,candStart+i);dot+=a*b;a2+=a*a;b2+=b*b}
+    return dot/Math.sqrt(Math.max(1e-12,a2*b2));
+  }
+  function bestMatch(channels,prevStart,expected,maxStart,overlap,searchRadius){
+    const lo=Math.max(0,Math.floor(expected-searchRadius)),hi=Math.min(maxStart,Math.ceil(expected+searchRadius));
+    let best=clamp(Math.round(expected),lo,hi),bestScore=-Infinity;
+    const searchStep=Math.max(4,Math.floor(searchRadius/40));
+    for(let cand=lo;cand<=hi;cand+=searchStep){const score=correlation(channels,prevStart,cand,overlap,16);if(score>bestScore){bestScore=score;best=cand}}
+    return best;
+  }
+  function stretchAudioBuffer(context,input,rate){
+    rate=Number(rate);if(!Number.isFinite(rate)||rate<=0)throw new Error('Virheellinen time-stretch nopeus.');
+    if(Math.abs(rate-1)<1e-4)return input;
+    const sr=input.sampleRate,channels=[];for(let c=0;c<input.numberOfChannels;c++)channels.push(input.getChannelData(c));
+    const outLength=Math.max(1,Math.round(input.length/rate)),out=context.createBuffer(input.numberOfChannels,outLength,sr),outs=[];for(let c=0;c<out.numberOfChannels;c++)outs.push(out.getChannelData(c));
+    const win=Math.min(chooseWindow(sr),Math.max(512,input.length)),overlap=Math.floor(win/2),synthHop=overlap,analysisHop=synthHop*rate,searchRadius=Math.min(Math.floor(sr*.014),Math.floor(overlap*.45)),maxStart=Math.max(0,input.length-win);
+    const firstCount=Math.min(win,outLength,input.length);for(let c=0;c<channels.length;c++)outs[c].set(channels[c].subarray(0,firstCount),0);
+    let prevIn=0,outPos=synthHop,frames=1;
+    while(outPos<outLength&&prevIn<maxStart){const expected=prevIn+analysisHop,best=bestMatch(channels,prevIn,expected,maxStart,overlap,searchRadius),remain=Math.min(win,outLength-outPos,input.length-best);if(remain<=0)break;
+      const blend=Math.min(overlap,remain);
+      for(let c=0;c<channels.length;c++){const src=channels[c],dst=outs[c];for(let i=0;i<blend;i++){const x=i/Math.max(1,blend-1),a=Math.cos(x*Math.PI*.5),b=Math.sin(x*Math.PI*.5);dst[outPos+i]=dst[outPos+i]*a+src[best+i]*b}for(let i=blend;i<remain;i++)dst[outPos+i]=src[best+i]}
+      prevIn=best;outPos+=synthHop;frames++;
+      if(frames>Math.ceil(outLength/Math.max(1,synthHop))+4)break;
+    }
+    return out;
+  }
+  function renderedSourceOffset(sourceOffset,rate){return Math.max(0,Number(sourceOffset)||0)/Math.max(.000001,Number(rate)||1)}
+  function outputDuration(inputDuration,rate){return Math.max(0,Number(inputDuration)||0)/Math.max(.000001,Number(rate)||1)}
+  return{stretchAudioBuffer,renderedSourceOffset,outputDuration,algorithm:'WSOLA-v1'};
+});
