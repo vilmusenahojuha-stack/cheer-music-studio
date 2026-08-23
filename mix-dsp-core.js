@@ -22,7 +22,7 @@
   function duckFactorAt(t,clips=[],settings={}){
     if(settings?.autoDuck===false)return 1;let f=1;
     for(const w of voiceWindows(clips,settings)){
-      if(t<w.start||t>w.end)continue;let x=w.duck;
+      if(t<=w.start||t>=w.end)continue;let x=w.duck;
       if(t<w.voiceStart)x=1-(1-w.duck)*clamp((t-w.start)/Math.max(.000001,w.attack),0,1);
       else if(t>w.voiceEnd)x=w.duck+(1-w.duck)*clamp((t-w.voiceEnd)/Math.max(.000001,w.release),0,1);
       f=Math.min(f,x);
