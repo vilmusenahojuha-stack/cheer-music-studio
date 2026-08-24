@@ -31,6 +31,8 @@ jobs:
         run: node tests/mix-dsp-core.test.js
       - name: Pitch-preserving time-stretch tests
         run: node tests/time-stretch-core.test.js
+      - name: Signalsmith HQ adapter tests
+        run: node tests/signalsmith-time-stretch.test.js
       - name: AudioContext engine integration tests
         run: node tests/audio-engine.integration.test.js
       - name: Offline renderer integration tests
