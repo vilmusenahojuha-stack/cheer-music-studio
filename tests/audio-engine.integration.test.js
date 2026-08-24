@@ -26,29 +26,30 @@ const engine=windowObj.cheerTimelineAudioEngine;assert.ok(engine,'engine should 
     {id:'f',type:'fx',sourceName:'fx',start:transition,duration:spb,sourceOffset:0,volume:.8,fadeIn:0,fadeOut:0},
   ];
   await engine.startAt(0);const ac=FakeAudioContext.last;
-  assert.equal(ac.log.starts.length,4,'music + incoming music + VO + FX must all be scheduled');
-  const [outgoing,incoming,voice,fx]=ac.log.starts,handoff=outgoing.when+outgoing.duration;
+  assert.equal(ac.log.starts.length,1,'look-ahead scheduler should initially create only the clip near the playhead');
+  const outgoing=ac.log.starts[0],info0=engine.getClockInfo();assert.equal(info0.currentTime,0,'playhead holds at timeline anchor during scheduling lead-in');
+  assert.equal(info0.lookaheadSeconds,6,'sequential playback must use a bounded look-ahead window');
+  ac.currentTime=info0.contextAnchor+(transition-4);engine.runSchedulerNow();
+  assert.equal(ac.log.starts.length,4,'incoming music + VO + FX must be scheduled before the handoff enters the look-ahead window');
+  const incoming=ac.log.starts[1],voice=ac.log.starts[2],fx=ac.log.starts[3],handoff=outgoing.when+outgoing.duration;
   assert.ok(Math.abs(handoff-incoming.when)<1e-9,'mid-eight music handoff must share one AudioContext instant');
   assert.ok(Math.abs(incoming.when-voice.when)<1e-9,'voice must share the same AudioContext clock');
   assert.ok(Math.abs(incoming.when-fx.when)<1e-9,'FX must share the same AudioContext clock');
-  const info0=engine.getClockInfo();assert.equal(info0.currentTime,0,'playhead holds at timeline anchor during scheduling lead-in');ac.currentTime=info0.contextAnchor+.375;assert.ok(Math.abs(engine.currentTime()-.375)<1e-9,'playhead must advance from AudioContext time');
+  ac.currentTime=info0.contextAnchor+.375;assert.ok(Math.abs(engine.currentTime()-.375)<1e-9,'playhead must advance from AudioContext time');
 
   const oldSources=ac.log.starts.map(x=>x.source);await engine.seekTo(transition+.5*spb);assert.ok(oldSources.every(s=>s.stopped),'seek must stop every previously scheduled source');const seekInfo=engine.getClockInfo();assert.ok(Math.abs(seekInfo.timelineAnchor-(transition+.5*spb))<1e-9,'seek anchor must equal requested timeline position');
   ac.currentTime=seekInfo.contextAnchor+.25;const pausedAt=engine.currentTime();engine.stop();assert.ok(Math.abs(engine.currentTime()-pausedAt)<1e-9,'pause must retain current timeline position');const startsBeforeResume=ac.log.starts.length;await engine.startAt(pausedAt);assert.ok(ac.log.starts.length>startsBeforeResume,'resume must create a fresh AudioContext schedule');
 
-  // Multiple simultaneous VO/FX assets must still share the exact same clock instant.
   engine.stop();state.audioTimeline.clips.push(
     {id:'v2',type:'voice',sourceName:'voice2',start:transition,duration:spb,sourceOffset:0,volume:.7,fadeIn:0,fadeOut:0},
     {id:'f2',type:'fx',sourceName:'fx2',start:transition,duration:spb,sourceOffset:0,volume:.6,fadeIn:0,fadeOut:0}
   );
   const beforeLayered=ac.log.starts.length;await engine.startAt(transition);const layered=ac.log.starts.slice(beforeLayered);assert.equal(layered.length,5,'incoming music + 2 VO + 2 FX should schedule together');const common=layered[0].when;assert.ok(layered.every(x=>Math.abs(x.when-common)<1e-9),'all layered sources must use one AudioContext instant');
 
-  // Rapid seek -> play -> seek must invalidate every stale schedule.
   const rapidOld=layered.map(x=>x.source);await engine.seekTo(transition+spb);const afterFirstSeek=ac.log.starts.slice(beforeLayered+layered.length);await engine.seekTo(transition+2*spb);assert.ok(rapidOld.every(s=>s.stopped),'first rapid seek must stop old layered sources');assert.ok(afterFirstSeek.every(x=>x.source.stopped),'second rapid seek must stop first seek schedule');const rapidInfo=engine.getClockInfo();assert.ok(Math.abs(rapidInfo.timelineAnchor-(transition+2*spb))<1e-9,'rapid seek must end at newest requested position');
 
-  // Cancellation while decode/preload is pending must never create a late stale start.
   engine.stop();engine.clearBuffers();let release;fetchGate=new Promise(r=>{release=r});const startsBeforeCancel=ac.log.starts.length;const pending=engine.startAt(0);assert.equal(engine.isStarting(),true,'engine should expose pending preload state');engine.stop();release();await pending;fetchGate=null;assert.equal(ac.log.starts.length,startsBeforeCancel,'cancelled preload must not schedule any late sources');assert.equal(engine.getClockInfo().activeSources,0,'cancelled preload must leave no active sources');
 
-  engine.stop();engine.clearBuffers();const finalInfo=engine.getClockInfo();assert.equal(finalInfo.activeSources,0,'stop must leave no active sources');assert.equal(finalInfo.bufferCount,0,'buffer cache must be clearable on project restore');
-  console.log('audio engine integration: all regression tests passed');
+  engine.stop();engine.clearBuffers();const finalInfo=engine.getClockInfo();assert.equal(finalInfo.activeSources,0,'stop must leave no active sources');assert.equal(finalInfo.scheduledClipCount,0,'stop must clear rolling scheduler state');assert.equal(finalInfo.bufferCount,0,'buffer cache must be clearable on project restore');
+  console.log('audio engine integration: look-ahead scheduling, exact handoffs and cancellation passed');
 })().catch(err=>{console.error(err);process.exitCode=1});
