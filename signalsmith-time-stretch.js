@@ -3,7 +3,7 @@
   const VERSION='1.3.2';
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const num=(v,f=0)=>Number.isFinite(Number(v))?Number(v):f;
-  let libraryPromise=null,lastEngine='none',lastError=null;
+  let libraryPromise=null,lastEngine='none',lastError=null,renderQueue=Promise.resolve();
 
   function base(){return root.CheerTimeStretch||null}
   function offlineCtor(){return root.OfflineAudioContext||root.webkitOfflineAudioContext||null}
@@ -13,11 +13,12 @@
   function loadLibrary(){
     if(libraryReady())return Promise.resolve(root.SignalsmithStretch);
     if(libraryPromise)return libraryPromise;
-    if(!root.document?.createElement) return Promise.reject(new Error('Signalsmith Stretch ei ole ladattavissa tässä ympäristössä.'));
+    if(!root.document?.createElement)return Promise.reject(new Error('Signalsmith Stretch ei ole ladattavissa tässä ympäristössä.'));
     libraryPromise=new Promise((resolve,reject)=>{
       let script=root.document.querySelector?.('script[data-cheer-signalsmith]');
-      const done=()=>libraryReady()?resolve(root.SignalsmithStretch):reject(new Error('Signalsmith Stretch latautui ilman käyttöliittymää.'));
-      const fail=()=>reject(new Error('Signalsmith Stretch -kirjaston lataus epäonnistui.'));
+      const cleanup=()=>{try{script?.remove?.()}catch{}};
+      const done=()=>{if(libraryReady())resolve(root.SignalsmithStretch);else{cleanup();reject(new Error('Signalsmith Stretch latautui ilman käyttöliittymää.'))}};
+      const fail=()=>{cleanup();reject(new Error('Signalsmith Stretch -kirjaston lataus epäonnistui.'))};
       if(script){script.addEventListener?.('load',done,{once:true});script.addEventListener?.('error',fail,{once:true});return}
       script=root.document.createElement('script');script.src=CDN;script.async=true;script.crossOrigin='anonymous';script.dataset.cheerSignalsmith='1';script.addEventListener('load',done,{once:true});script.addEventListener('error',fail,{once:true});(root.document.head||root.document.documentElement).appendChild(script);
     }).catch(err=>{libraryPromise=null;throw err});
@@ -44,10 +45,12 @@
     return rendered;
   }
 
+  function queuedSignalsmith(inputBuffer,rate){const job=renderQueue.catch(()=>{}).then(()=>renderSignalsmith(inputBuffer,rate));renderQueue=job.then(()=>undefined,()=>undefined);return job}
+
   async function stretchAudioBuffer(context,inputBuffer,rate,options={}){
     if(!inputBuffer)return null;const b=base(),r=clamp(num(rate,1),.5,2),needs=b?.needsStretch?b.needsStretch(r):Math.abs(r-1)>1e-4;if(!needs){lastEngine='none';lastError=null;return inputBuffer}
     try{
-      const rendered=await renderSignalsmith(inputBuffer,r);lastEngine='signalsmith';lastError=null;try{rendered.cheerStretchEngine='signalsmith'}catch{}return rendered;
+      const rendered=await queuedSignalsmith(inputBuffer,r);lastEngine='signalsmith';lastError=null;try{rendered.cheerStretchEngine='signalsmith'}catch{}return rendered;
     }catch(err){
       lastError=err?.message||String(err);if(options.requireSignalsmith)throw err;if(!b?.stretchAudioBuffer)throw err;console.warn('Signalsmith HQ ei ollut käytettävissä, käytetään WSOLA-varajärjestelmää.',err);const rendered=b.stretchAudioBuffer(context,inputBuffer,r,options);lastEngine='wsola-fallback';try{rendered.cheerStretchEngine='wsola-fallback'}catch{}return rendered;
     }
