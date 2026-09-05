@@ -121,6 +121,57 @@
     return events;
   }
 
+  function clamp01(value){return Math.max(0,Math.min(1,finiteNumber(value)));}
+
+  function detectTransitionCandidates(eightCountMap=[],options={}){
+    const minEnergyStrength=Math.max(1,Math.round(finiteNumber(options.minEnergyStrength,1)));
+    const candidates=[];
+    for(let i=1;i<eightCountMap.length;i++){
+      const previous=eightCountMap[i-1],current=eightCountMap[i];
+      if(!previous||!current)continue;
+      const from=energyScore(previous.energy),to=energyScore(current.energy);
+      const delta=(from&&to)?to-from:0;
+      const sectionChanged=(previous.sectionId||null)!==(current.sectionId||null);
+      const atEight=Number(current.eight);
+      const time=finiteNumber(current.start);
+
+      if(sectionChanged){
+        const strength=Math.abs(delta);
+        candidates.push({
+          atEight,time,type:'cut',
+          confidence:clamp01(.62+Math.min(3,strength)*.08),
+          reason:'section-boundary',
+          fromSection:previous.sectionType||null,
+          toSection:current.sectionType||null,
+          energyDelta:delta
+        });
+      }
+
+      if(delta<=-minEnergyStrength){
+        candidates.push({
+          atEight,time,type:'break',
+          confidence:clamp01(.58+Math.min(3,Math.abs(delta))*.1+(sectionChanged?.08:0)),
+          reason:sectionChanged?'energy-drop+section-boundary':'energy-drop',
+          fromSection:previous.sectionType||null,
+          toSection:current.sectionType||null,
+          energyDelta:delta
+        });
+      }
+
+      if(delta>=minEnergyStrength){
+        candidates.push({
+          atEight,time,type:'drop',
+          confidence:clamp01(.58+Math.min(3,delta)*.1+(sectionChanged?.08:0)),
+          reason:sectionChanged?'energy-rise+section-boundary':'energy-rise',
+          fromSection:previous.sectionType||null,
+          toSection:current.sectionType||null,
+          energyDelta:delta
+        });
+      }
+    }
+    return candidates.sort((a,b)=>a.time-b.time||({break:0,cut:1,drop:2}[a.type]-({break:0,cut:1,drop:2}[b.type])));
+  }
+
   function snapToCount(time,{bpm,oneOffset=0,mode='beat'}={}){
     const unit=mode==='eight'?eightCountSeconds(bpm):beatSeconds(bpm);
     const offset=Math.max(0,finiteNumber(oneOffset));
@@ -139,7 +190,7 @@
     return {ok:issues.length===0,sections:normalized,issues};
   }
 
-  const api={SECTION_TYPES,ENERGY_LEVELS,ENERGY_SCORES,beatSeconds,eightCountSeconds,normalizeSection,buildEightCountMap,buildPhrases,energyScore,classifyEnergyTrend,detectEnergyEvents,snapToCount,validateSections};
+  const api={SECTION_TYPES,ENERGY_LEVELS,ENERGY_SCORES,beatSeconds,eightCountSeconds,normalizeSection,buildEightCountMap,buildPhrases,energyScore,classifyEnergyTrend,detectEnergyEvents,detectTransitionCandidates,snapToCount,validateSections};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerStructureCore=api;
 })();
