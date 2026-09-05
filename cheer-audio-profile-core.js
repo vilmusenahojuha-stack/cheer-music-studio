@@ -44,7 +44,8 @@
     const eightSeconds=480/tempo;
     const offset=Math.max(0,finite(oneOffset));
     const available=Math.max(0,samples.length/sr-offset);
-    const inferred=Math.floor(available/eightSeconds);
+    const sampleRoundingTolerance=4/sr;
+    const inferred=Math.floor((available+sampleRoundingTolerance)/eightSeconds);
     const count=Math.max(0,Math.min(inferred,Math.floor(finite(totalEights,inferred)||inferred)));
     const rows=[];
     for(let i=0;i<count;i++){
@@ -71,8 +72,7 @@
       else if(score<.82)energy='high';
       else energy='peak';
       const previous=index?rows[index-1]:null;
-      const previousScore=index?null:null;
-      return {...row,energyScore:score,energy,loudness,activity,rawDelta:previous?row.rms-previous.rms:0,previousScore};
+      return {...row,energyScore:score,energy,loudness,activity,rawDelta:previous?row.rms-previous.rms:0};
     }).map((row,index,all)=>({...row,energyDelta:index?row.energyScore-all[index-1].energyScore:0}));
   }
 
