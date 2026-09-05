@@ -34,16 +34,34 @@ assert.equal(core.classifyEnergyTrend([{energy:'peak'},{energy:'high'}]),'fallin
 assert.equal(core.classifyEnergyTrend([{energy:'medium'},{energy:'medium'}]),'steady');
 
 const energyMap=[
-  {eight:1,start:0,energy:'low',sectionId:'a'},
-  {eight:2,start:3,energy:'medium',sectionId:'a'},
-  {eight:3,start:6,energy:'peak',sectionId:'b'},
-  {eight:4,start:9,energy:'high',sectionId:'b'}
+  {eight:1,start:0,energy:'low',sectionId:'a',sectionType:'intro'},
+  {eight:2,start:3,energy:'medium',sectionId:'a',sectionType:'intro'},
+  {eight:3,start:6,energy:'peak',sectionId:'b',sectionType:'stunt'},
+  {eight:4,start:9,energy:'high',sectionId:'b',sectionType:'stunt'},
+  {eight:5,start:12,energy:'low',sectionId:'c',sectionType:'transition'},
+  {eight:6,start:15,energy:'peak',sectionId:'d',sectionType:'dance'}
 ];
 const events=core.detectEnergyEvents(energyMap);
-assert.equal(events.length,3);
-assert.deepEqual(events.map(e=>e.type),['energy-rise','energy-rise','energy-drop']);
+assert.equal(events.length,5);
+assert.deepEqual(events.slice(0,3).map(e=>e.type),['energy-rise','energy-rise','energy-drop']);
 assert.equal(events[1].strength,2);
 assert.equal(events[1].sectionChanged,true);
+
+const transitions=core.detectTransitionCandidates(energyMap);
+const at3=transitions.filter(e=>e.atEight===3);
+assert.ok(at3.some(e=>e.type==='cut'&&e.reason==='section-boundary'));
+assert.ok(at3.some(e=>e.type==='drop'&&e.energyDelta===2));
+const at5=transitions.filter(e=>e.atEight===5);
+assert.ok(at5.some(e=>e.type==='break'&&e.energyDelta===-2));
+assert.ok(at5.some(e=>e.type==='cut'));
+const at6=transitions.filter(e=>e.atEight===6);
+assert.ok(at6.some(e=>e.type==='drop'&&e.energyDelta===3));
+assert.ok(transitions.every(e=>e.confidence>=0&&e.confidence<=1));
+
+const filtered=core.detectTransitionCandidates(energyMap,{minEnergyStrength:3});
+assert.ok(!filtered.some(e=>e.type==='drop'&&e.atEight===3));
+assert.ok(filtered.some(e=>e.type==='drop'&&e.atEight===6));
+assert.ok(filtered.some(e=>e.type==='cut'&&e.atEight===3));
 
 const beat=60/152;
 close(core.snapToCount(1.23,{bpm:152,oneOffset:0.04,mode:'beat'}),0.04+Math.round((1.23-0.04)/beat)*beat);
