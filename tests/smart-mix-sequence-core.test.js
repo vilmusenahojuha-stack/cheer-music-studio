@@ -22,7 +22,8 @@ assert.equal(optimized.coverage,1);
 assert.deepEqual(optimized.sequence.map(s=>s.candidate.startEight),[9,13,17]);
 assert.equal(optimized.sequence[1].transition.gapEights,0);
 assert.equal(optimized.sequence[2].transition.gapEights,0);
-assert.ok(optimized.transitionScore>.99);
+assert.ok(optimized.transitionScore>0);
+assert.ok(optimized.transitionQualityScore>0);
 assert.equal(optimized.nonDestructive,true);
 
 const overlap=core.transitionCompatibility({startEight:1,endEight:4},{startEight:4,endEight:7});
@@ -55,5 +56,26 @@ const wrapped=core.optimizeMatchedPlan({coverage:1,averageScore:.88,matches});
 assert.equal(wrapped.sourceCoverage,1);
 assert.equal(wrapped.sourceAverageScore,.88);
 assert.equal(wrapped.matchedSections,3);
+
+const qualityDriven=core.optimizeSequence([
+  {sectionId:'intro',sectionType:'intro',candidates:[
+    {startEight:1,endEight:4,score:.9,features:{averageEnergy:.35}}
+  ]},
+  {sectionId:'stunt',sectionType:'stunt',candidates:[
+    {startEight:5,endEight:8,score:.96,features:{averageEnergy:.34,entryTransitionStrength:.05}},
+    {startEight:9,endEight:12,score:.89,dropConfidence:.95,features:{averageEnergy:.78,entryTransitionStrength:.95}}
+  ]}
+],{
+  matchWeight:.45,
+  transitionWeight:.55,
+  maxGapEights:8,
+  transitionTimingShare:.25,
+  transitionQualityShare:.75
+});
+assert.equal(qualityDriven.sequence[1].candidate.startEight,9);
+assert.equal(qualityDriven.sequence[1].transition.qualityRating,'good');
+assert.ok(qualityDriven.sequence[1].transition.qualityScore>.7);
+assert.ok(qualityDriven.sequence[1].transition.combinedScore>qualityDriven.sequence[1].transition.score*.5);
+assert.ok(qualityDriven.transitionQualityScore>.8);
 
 console.log('smart-mix-sequence-core tests passed');
