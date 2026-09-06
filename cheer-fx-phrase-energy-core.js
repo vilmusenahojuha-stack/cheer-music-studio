@@ -60,16 +60,18 @@
   }
 
   function shapeGroup(group,windows=[],options={}){
-    const sectionType=group?.pattern?.sectionType||group?.events?.[0]?.sectionType||'other';
+    const sourceEvents=Array.isArray(group?.events)?group.events:[];
+    const sectionType=group?.pattern?.sectionType||sourceEvents[0]?.sectionType||'other';
     const context=resolveEnergyWindow(group?.eight,sectionType,windows);
     const phraseLength=Math.max(1,Math.round(finite(options.phraseLength,4)));
     const slot=phraseSlot(group?.eight,options.phraseStartEight,phraseLength);
     const budget=desiredAccentBudget(group,context,options);
-    const impacts=(Array.isArray(group?.events)?group.events:[]).filter(e=>e.kind==='impact'&&e.patternDecision!=='review')
-      .map(e=>({...e,phraseEnergyScore:scoreEvent(e,context,slot,phraseLength)}))
-      .sort((a,b)=>finite(b.phraseEnergyScore)-finite(a.phraseEnergyScore)||finite(a.count)-finite(b.count));
-    const allowedImpacts=new Set(impacts.slice(0,budget));
-    const events=(Array.isArray(group?.events)?group.events:[]).map(event=>{
+    const rankedImpacts=sourceEvents
+      .filter(event=>event.kind==='impact'&&event.patternDecision!=='review')
+      .map(event=>({event,score:scoreEvent(event,context,slot,phraseLength)}))
+      .sort((a,b)=>finite(b.score)-finite(a.score)||finite(a.event?.count)-finite(b.event?.count));
+    const allowedImpacts=new Set(rankedImpacts.slice(0,budget).map(item=>item.event));
+    const events=sourceEvents.map(event=>{
       const scored=scoreEvent(event,context,slot,phraseLength);
       if(event.kind==='impact'&&event.patternDecision!=='review'&&!allowedImpacts.has(event)){
         return {...event,phraseEnergyScore:scored,phraseEnergyDecision:'defer',phraseEnergyReason:'phrase-energy-density-cap',phraseSlot:slot,energyPhase:context.phase};
@@ -77,11 +79,11 @@
       const heroCandidate=event.kind==='impact'&&(context.phase==='peak'||context.phase==='resolve')&&(slot===phraseLength||event.count===1);
       return {...event,phraseEnergyScore:scored,phraseEnergyDecision:'keep',phraseEnergyRole:heroCandidate?'hero-candidate':'support',phraseSlot:slot,energyPhase:context.phase};
     });
-    const kept=events.filter(e=>e.phraseEnergyDecision!=='defer');
-    const deferred=events.filter(e=>e.phraseEnergyDecision==='defer');
+    const kept=events.filter(event=>event.phraseEnergyDecision!=='defer');
+    const deferred=events.filter(event=>event.phraseEnergyDecision==='defer');
     const risks=[];
-    if(context.phase==='break'&&kept.filter(e=>e.kind==='impact').length>1)risks.push({type:'break-too-impact-heavy'});
-    if(context.phase==='peak'&&kept.filter(e=>e.kind==='impact').length===0)risks.push({type:'peak-missing-impact'});
+    if(context.phase==='break'&&kept.filter(event=>event.kind==='impact').length>1)risks.push({type:'break-too-impact-heavy'});
+    if(context.phase==='peak'&&kept.filter(event=>event.kind==='impact').length===0)risks.push({type:'peak-missing-impact'});
     return {...group,events,phraseEnergy:{phase:context.phase,energy:context.energy,source:context.source,phraseSlot:slot,phraseLength,accentBudget:budget},deferred,risks};
   }
 
@@ -102,7 +104,7 @@
       version:1,kind:'cheer-fx-phrase-energy-plan',status,bpm:patternPlan.bpm,
       nonDestructive:true,executable:false,safePreviewOnly:true,
       groups,events,activeEvents,deferredEvents,phraseEnergyRisks,riskFlags:[...new Set(riskFlags)],
-      summary:{groups:groups.length,events:events.length,active:activeEvents.length,deferred:deferredEvents.length,heroCandidates:activeEvents.filter(e=>e.phraseEnergyRole==='hero-candidate').length,readyForPreview:status==='preview-ready'}
+      summary:{groups:groups.length,events:events.length,active:activeEvents.length,deferred:deferredEvents.length,heroCandidates:activeEvents.filter(event=>event.phraseEnergyRole==='hero-candidate').length,readyForPreview:status==='preview-ready'}
     };
   }
 
