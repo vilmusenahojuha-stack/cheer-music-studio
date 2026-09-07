@@ -54,6 +54,38 @@ assert.equal(core.impactRenderSpec({kind:'impact',at:-1,sectionType:'stunt'}),nu
 assert.equal(core.impactRenderSpec({id:'density-drop-impact',kind:'impact',at:6,sectionType:'stunt',executable:false,densityDecision:'drop'}),null,'density-dropped impact must not render');
 assert.equal(core.riserRenderSpec({id:'density-drop-riser',kind:'riser',at:5.6,endAt:6,duration:.4,sectionType:'stunt',executable:false,densityDecision:'drop'}),null,'riser paired with a density-dropped impact must not render');
 
+const phraseAnchors=[
+  {id:'build-riser',kind:'riser',at:2.8,endAt:3.2,duration:.4,sectionId:'stunt-build',sectionType:'stunt',routineEight:2,sectionArcStage:'build',confidence:.85,intensityScore:.74},
+  {id:'build-hit',kind:'impact',at:3.2,sectionId:'stunt-build',sectionType:'stunt',routineEight:2,sectionArcStage:'build',confidence:.85,intensityScore:.74},
+  {id:'drive-riser',kind:'riser',at:5.6,endAt:6,duration:.4,sectionId:'basket-drive',sectionType:'basket',routineEight:3,sectionArcStage:'drive',confidence:.9,intensityScore:.86},
+  {id:'drive-hit',kind:'impact',at:6,sectionId:'basket-drive',sectionType:'basket',routineEight:3,sectionArcStage:'drive',confidence:.9,intensityScore:.86},
+  {id:'peak-riser',kind:'riser',at:8.8,endAt:9.2,duration:.4,sectionId:'pyramid-peak',sectionType:'pyramid',routineEight:4,sectionArcStage:'peak',phraseHeroEligible:true,confidence:.93,intensityScore:.96},
+  {id:'peak-hit',kind:'impact',at:9.2,sectionId:'pyramid-peak',sectionType:'pyramid',routineEight:4,sectionArcStage:'peak',phraseHeroEligible:true,confidence:.93,intensityScore:.96}
+];
+const phraseSnapshot=JSON.stringify(phraseAnchors);
+const selected=core.selectPatternHits(phraseAnchors);
+const selectedById=id=>selected.find(a=>a.id===id);
+assert.equal(selectedById('peak-hit').hitRole,'principal','peak hit should become the principal phrase hit');
+assert.equal(selectedById('drive-hit').hitRole,'support','drive hit should remain as a quieter support hit');
+assert.equal(selectedById('build-hit').hitRole,'omit','build-stage secondary impact should be intentionally omitted');
+assert.equal(selectedById('build-hit').executable,false,'omitted build impact must not render');
+assert.equal(selectedById('build-riser').hitRole,'omit','paired riser must follow an omitted impact');
+assert.equal(selectedById('build-riser').executable,false);
+assert.equal(selectedById('peak-riser').hitRole,'principal-build');
+assert.equal(selectedById('drive-riser').hitRole,'support-build');
+assert.ok(core.principalHitScore(selectedById('peak-hit'))>core.principalHitScore(selectedById('drive-hit')));
+assert.equal(JSON.stringify(phraseAnchors),phraseSnapshot,'hit selection must not mutate source anchors');
+
+const selectedEvents=core.buildRenderEvents(phraseAnchors,12);
+assert.deepEqual(selectedEvents.map(e=>e.id),['drive-riser','drive-hit','peak-riser','peak-hit'],'omitted build pair must stay out of rendered audio');
+const supportEvent=selectedEvents.find(e=>e.id==='drive-hit');
+const principalEvent=selectedEvents.find(e=>e.id==='peak-hit');
+assert.equal(supportEvent.hitRole,'support');
+assert.equal(principalEvent.hitRole,'principal');
+assert.ok(principalEvent.strength>supportEvent.strength,'principal phrase hit should render stronger than support hit');
+assert.equal(principalEvent.at,9.2,'principal selection must not move impact timing');
+assert.equal(supportEvent.at,6,'support selection must not move impact timing');
+
 const events=core.buildRenderEvents([
   {id:'late',kind:'impact',at:18,sectionType:'ending',confidence:.8,intensityScore:.96,intensity:'hero'},
   {id:'late-riser',kind:'riser',at:17.6,endAt:18,duration:.4,sectionType:'ending',confidence:.8,intensityScore:.84,intensity:'strong'},
