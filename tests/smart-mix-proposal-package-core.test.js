@@ -55,6 +55,7 @@ assert.equal(packaged.sequence[1].sourceName,'song-b.wav');
 assert.equal(packaged.sequence[1].trackId,'track-b');
 assert.equal(packaged.summary.sections,3);
 assert.equal(packaged.summary.transitions,2);
+assert.equal(packaged.summary.renderedTransitions,2);
 assert.equal(packaged.summary.editActions,1);
 assert.equal(packaged.summary.timelineClips,3);
 assert.equal(packaged.summary.readyForPreview,true);
@@ -69,6 +70,7 @@ assert.equal(packaged.audioTimelinePlan.compatibleWith,'audioTimeline.clips');
 assert.equal(packaged.audioTimelinePlan.nonDestructive,true);
 assert.equal(packaged.audioTimelinePlan.executable,false);
 assert.equal(packaged.audioTimelinePlan.clips.length,3);
+assert.equal(packaged.audioTimelinePlan.sourceName,undefined);
 assert.equal(packaged.audioTimelinePlan.clips[0].sourceName,'song-a.wav');
 assert.equal(packaged.audioTimelinePlan.clips[0].sourceTrackId,'track-a');
 assert.equal(packaged.audioTimelinePlan.clips[0].sourceOffset,.5);
@@ -78,10 +80,33 @@ assert.ok(Math.abs(packaged.audioTimelinePlan.clips[2].start-eightSeconds*4)<1e-
 assert.ok(Math.abs(packaged.audioTimelinePlan.duration-eightSeconds*6)<1e-9);
 assert.equal(packaged.audioTimelinePlan.clips[1].smartMix.sectionId,'stunt');
 
+// Count-safe transition rendering: only existing DSP fade fields change.
+assert.equal(packaged.audioTimelinePlan.transitions.length,2);
+const impactBoundary=packaged.audioTimelinePlan.transitions[0];
+const flowBoundary=packaged.audioTimelinePlan.transitions[1];
+assert.equal(impactBoundary.type,'count-safe-microfade');
+assert.equal(impactBoundary.fromSectionId,'intro');
+assert.equal(impactBoundary.toSectionId,'stunt');
+assert.equal(impactBoundary.fadeSeconds,.008);
+assert.equal(flowBoundary.fadeSeconds,.020);
+assert.equal(packaged.audioTimelinePlan.clips[0].fadeOut,.008);
+assert.equal(packaged.audioTimelinePlan.clips[1].fadeIn,.008);
+assert.equal(packaged.audioTimelinePlan.clips[1].fadeOut,.020);
+assert.equal(packaged.audioTimelinePlan.clips[2].fadeIn,.020);
+assert.equal(packaged.audioTimelinePlan.clips[1].smartMix.transitionIn.preservesTimelineStart,true);
+assert.equal(packaged.audioTimelinePlan.clips[2].smartMix.transitionIn.preservesSourceOffset,true);
+
+// Fade policy never consumes a meaningful fraction of a cheer count.
+assert.ok(core.transitionFadeSeconds({sectionType:'dance',transition:{qualityRating:'risky'}},152)<=((60/152)*.10)+1e-12);
+assert.ok(core.transitionFadeSeconds({sectionType:'ending',transition:{qualityRating:'strong'}},152)<core.transitionFadeSeconds({sectionType:'dance',transition:{qualityRating:'strong'}},152));
+
 const directPlan=core.buildAudioTimelinePlan(core.normalizeSequence(baseSequence.sequence),152,{startAt:3});
 assert.equal(directPlan.clips.length,3);
 assert.equal(directPlan.clips[0].start,3);
 assert.ok(Math.abs(directPlan.duration-eightSeconds*6)<1e-9);
+assert.equal(directPlan.clips[1].start,3+eightSeconds*2);
+assert.equal(directPlan.clips[1].sourceOffset,12.4);
+assert.equal(directPlan.transitions.length,2);
 
 const conflictActions={createEditPlan(){return {
   actions:[{id:'a'},{id:'b'}],conflicts:[{type:'opposing-energy-actions'}],
