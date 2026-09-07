@@ -51,11 +51,15 @@ assert.equal(core.impactRenderSpec({kind:'impact',at:4,sectionType:'dance'}),nul
 assert.equal(core.riserRenderSpec({kind:'riser',at:4,endAt:4.4,duration:.4,sectionType:'dance'}),null,'dance must not get structural riser synth');
 assert.equal(core.riserRenderSpec({kind:'riser',at:4,endAt:4,duration:.4,sectionType:'stunt'}),null,'riser must end after it starts');
 assert.equal(core.impactRenderSpec({kind:'impact',at:-1,sectionType:'stunt'}),null,'negative timeline positions must be rejected');
+assert.equal(core.impactRenderSpec({id:'density-drop-impact',kind:'impact',at:6,sectionType:'stunt',executable:false,densityDecision:'drop'}),null,'density-dropped impact must not render');
+assert.equal(core.riserRenderSpec({id:'density-drop-riser',kind:'riser',at:5.6,endAt:6,duration:.4,sectionType:'stunt',executable:false,densityDecision:'drop'}),null,'riser paired with a density-dropped impact must not render');
 
 const events=core.buildRenderEvents([
   {id:'late',kind:'impact',at:18,sectionType:'ending',confidence:.8,intensityScore:.96,intensity:'hero'},
   {id:'late-riser',kind:'riser',at:17.6,endAt:18,duration:.4,sectionType:'ending',confidence:.8,intensityScore:.84,intensity:'strong'},
   {id:'flow',kind:'impact',at:12,sectionType:'dance',confidence:.9,intensityScore:.8,intensity:'strong'},
+  {id:'density-drop-riser',kind:'riser',at:8.6,endAt:9,duration:.4,sectionType:'pyramid',confidence:.9,intensityScore:.8,intensity:'strong',executable:false,densityDecision:'drop'},
+  {id:'density-drop-impact',kind:'impact',at:9,sectionType:'pyramid',confidence:.9,intensityScore:.9,intensity:'hero',executable:false,densityDecision:'drop'},
   {id:'early-riser',kind:'riser',at:5.6,endAt:6,duration:.4,sectionType:'stunt',confidence:.9,intensityScore:.8,intensity:'strong'},
   {id:'early',kind:'impact',at:6,sectionType:'stunt',confidence:.9,intensityScore:.92,intensity:'hero'},
   {id:'outside',kind:'impact',at:31,sectionType:'basket',confidence:.9,intensityScore:.95,intensity:'hero'}
