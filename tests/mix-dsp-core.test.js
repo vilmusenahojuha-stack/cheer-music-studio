@@ -81,9 +81,36 @@ assert.equal(flowClip.start,0,'flow DSP must not move the clip start');
 assert.ok(Math.abs(flowClip.duration-(480/152*2))<1e-12,'flow DSP must not change timeline duration');
 assert.equal(flowClip.smartMix.sourceStartEight,1,'flow DSP must not change source count position');
 
+// Risky Smart Mix boundaries get a longer guarded exit instead of pretending the source has a
+// strong break/drop. The protection is still count-safe: it only changes gain before the boundary.
+const guardedClip={
+  ...impactClip,
+  sourceName:'Guarded source',
+  fadeOut:.032,
+  smartMix:{sourceStartEight:1,sourceEndEight:2,transitionOut:{type:'guarded-cut',countLength:0}}
+};
+const guardedShape=DSP.guardedShape(guardedClip);
+assert.ok(guardedShape,'guarded-cut should create a protection shape');
+assert.ok(Math.abs(guardedShape.prepSeconds-countSeconds*.75)<1e-9,'guarded protection must span three quarters of a count');
+assert.equal(guardedShape.fadeSeconds,.032);
+assert.equal(guardedShape.floor,.42);
+assert.equal(DSP.clipEnvelopeAt(guardedClip,guardedClip.duration-guardedShape.prepSeconds),1);
+const guardedMidway=guardedClip.duration-(guardedShape.prepSeconds+guardedShape.fadeSeconds)/2;
+const guardedMidwayGain=DSP.clipEnvelopeAt(guardedClip,guardedMidway);
+assert.ok(guardedMidwayGain>.42&&guardedMidwayGain<1,'guarded region should reduce exposed weak-boundary energy gradually');
+assert.ok(Math.abs(DSP.clipEnvelopeAt(guardedClip,guardedClip.duration-guardedShape.fadeSeconds)-.42)<1e-9,'guarded microfade starts from protection floor');
+assert.equal(DSP.clipEnvelopeAt(guardedClip,guardedClip.duration),0);
+const guardedPoints=DSP.clipAutomationPoints(guardedClip,0,guardedClip.duration);
+assert.ok(guardedPoints.some(p=>Math.abs(p[0]-(guardedClip.duration-guardedShape.prepSeconds))<1e-9),'automation includes guarded protection start');
+assert.ok(guardedPoints.some(p=>Math.abs(p[0]-(guardedClip.duration-guardedShape.fadeSeconds))<1e-9),'automation includes guarded microfade start');
+assert.equal(guardedClip.start,0,'guarded DSP must not move the clip start');
+assert.ok(Math.abs(guardedClip.duration-(480/152*2))<1e-12,'guarded DSP must not change timeline duration');
+assert.equal(guardedClip.smartMix.sourceStartEight,1,'guarded DSP must not change source count position');
+
 const cleanClip={...impactClip,smartMix:{...impactClip.smartMix,transitionOut:{type:'clean-cut'}},fadeOut:.014};
 assert.equal(DSP.impactShape(cleanClip),null);
 assert.equal(DSP.flowShape(cleanClip),null,'unrelated transition types retain the original microfade envelope');
+assert.equal(DSP.guardedShape(cleanClip),null,'clean cuts must not receive guarded protection');
 assert.ok(Math.abs(DSP.clipEnvelopeAt(cleanClip,cleanClip.duration-.007)-.5)<1e-9,'clean-cut microfade behavior remains unchanged');
 
 const events=[];const param={cancelScheduledValues:t=>events.push(['cancel',t]),setValueAtTime:(v,t)=>events.push(['set',v,t]),linearRampToValueAtTime:(v,t)=>events.push(['ramp',v,t])};
