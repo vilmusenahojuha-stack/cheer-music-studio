@@ -15,6 +15,33 @@
   function trackKey(t){return`${t.name}::${t.size||''}::${t.duration||''}::${t.url||''}`}
   function stretchKey(t,rate){return`${trackKey(t)}::tempo=${Number(rate).toFixed(6)}`}
   function needsPitchStretch(rate){return Math.abs(Number(rate)-1)>1e-4}
+  function clonePlain(value){return value==null?value:JSON.parse(JSON.stringify(value));}
+  function projectForTimelinePlan(project,plan){
+    if(!project||typeof project!=='object')throw new Error('Smart Mix preview tarvitsee projektin.');
+    if(plan?.status!=='preview-ready')throw new Error('Smart Mix audioTimelinePlan ei ole preview-ready.');
+    if(!Array.isArray(plan?.clips)||!plan.clips.length)throw new Error('Smart Mix audioTimelinePlan ei sisällä clippejä.');
+    const tracks=Array.isArray(project.tracks)?project.tracks:[];
+    const clips=plan.clips.map((clip,index)=>{
+      const copy=clonePlain(clip)||{};
+      if(!copy.id)copy.id=`smartmix-preview-${index+1}`;
+      if(copy.type!=='music')throw new Error('Smart Mix preview tukee tässä vaiheessa vain musiikkiclippejä.');
+      if(!copy.sourceName)throw new Error('Smart Mix preview -clipiltä puuttuu sourceName.');
+      const source=tracks.find(t=>t.name===copy.sourceName);
+      if(!source?.url)throw new Error(`Smart Mix preview -lähdeaudiota ei löytynyt: ${copy.sourceName}`);
+      if(!Number.isFinite(Number(copy.start))||Number(copy.start)<0||!Number.isFinite(Number(copy.duration))||Number(copy.duration)<=0||!Number.isFinite(Number(copy.sourceOffset||0))||Number(copy.sourceOffset||0)<0)throw new Error(`Smart Mix preview -clipillä on virheellinen ajoitus: ${copy.sourceName}`);
+      return copy;
+    });
+    const duration=clips.reduce((m,c)=>Math.max(m,clipEnd(c)),0);
+    return {
+      ...project,
+      duration:Math.max(1,duration),
+      tracks:project.tracks,
+      trackAnalysis:project.trackAnalysis,
+      mixSettings:clonePlain(project.mixSettings)||{},
+      audioTimeline:{...(clonePlain(project.audioTimeline)||{}),clips},
+      smartMixPreview:{active:true,source:'audioTimelinePlan',nonDestructive:true}
+    };
+  }
   async function decodeTracks(project,onProgress=()=>{}){
     const C=window.AudioContext||window.webkitAudioContext;if(!C)throw new Error('Web Audio API ei ole käytettävissä.');
     const ctx=new C();const unique=new Map();for(const c of project.audioTimeline?.clips||[]){const t=trackFor(project,c);if(t?.url)unique.set(trackKey(t),t)}
@@ -60,5 +87,9 @@
     if(rendered.numberOfChannels!==CHANNELS)throw new Error(`Offline-renderissä oli ${rendered.numberOfChannels} kanavaa, odotettiin stereota.`);
     return rendered;
   }
-  window.CheerOfflineRenderer={renderProject,SAMPLE_RATE,CHANNELS,projectLength,trackKey};
+  async function renderTimelinePlan(project,plan,onProgress=()=>{}){
+    const previewProject=projectForTimelinePlan(project,plan);
+    return renderProject(previewProject,onProgress);
+  }
+  window.CheerOfflineRenderer={renderProject,renderTimelinePlan,projectForTimelinePlan,SAMPLE_RATE,CHANNELS,projectLength,trackKey};
 })();
