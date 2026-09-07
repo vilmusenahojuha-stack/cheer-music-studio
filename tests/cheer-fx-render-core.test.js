@@ -67,7 +67,7 @@ const selected=core.selectPatternHits(phraseAnchors);
 const selectedById=id=>selected.find(a=>a.id===id);
 assert.equal(selectedById('peak-hit').hitRole,'principal','peak hit should become the principal phrase hit');
 assert.equal(selectedById('drive-hit').hitRole,'support','drive hit should remain as a quieter support hit');
-assert.equal(selectedById('build-hit').hitRole,'omit','build-stage secondary impact should be intentionally omitted');
+assert.equal(selectedById('build-hit').hitRole,'omit','stunt build-stage secondary impact should be intentionally omitted');
 assert.equal(selectedById('build-hit').executable,false,'omitted build impact must not render');
 assert.equal(selectedById('build-riser').hitRole,'omit','paired riser must follow an omitted impact');
 assert.equal(selectedById('build-riser').executable,false);
@@ -77,14 +77,54 @@ assert.ok(core.principalHitScore(selectedById('peak-hit'))>core.principalHitScor
 assert.equal(JSON.stringify(phraseAnchors),phraseSnapshot,'hit selection must not mutate source anchors');
 
 const selectedEvents=core.buildRenderEvents(phraseAnchors,12);
-assert.deepEqual(selectedEvents.map(e=>e.id),['drive-riser','drive-hit','peak-riser','peak-hit'],'omitted build pair must stay out of rendered audio');
+assert.deepEqual(selectedEvents.map(e=>e.id),['drive-riser','drive-hit','peak-riser','peak-hit'],'omitted stunt build pair must stay out of rendered audio');
 const supportEvent=selectedEvents.find(e=>e.id==='drive-hit');
 const principalEvent=selectedEvents.find(e=>e.id==='peak-hit');
 assert.equal(supportEvent.hitRole,'support');
+assert.equal(supportEvent.supportPolicy,'basket-snap-support');
 assert.equal(principalEvent.hitRole,'principal');
 assert.ok(principalEvent.strength>supportEvent.strength,'principal phrase hit should render stronger than support hit');
 assert.equal(principalEvent.at,9.2,'principal selection must not move impact timing');
 assert.equal(supportEvent.at,6,'support selection must not move impact timing');
+
+assert.equal(core.supportPolicyFor('pyramid').allowBuildSupport,true,'pyramid may keep a restrained build support hit');
+assert.equal(core.supportPolicyFor('ending').omitSecondary,true,'ending should focus secondary FX away from the final principal hit');
+assert.equal(core.resolveSecondaryRole({sectionType:'pyramid',sectionArcStage:'build'}),'support');
+assert.equal(core.resolveSecondaryRole({sectionType:'stunt',sectionArcStage:'build'}),'omit');
+assert.equal(core.resolveSecondaryRole({sectionType:'basket',sectionArcStage:'release'}),'omit');
+assert.equal(core.resolveSecondaryRole({sectionType:'ending',sectionArcStage:'drive'}),'omit');
+
+const sectionPolicyAnchors=[
+  {id:'pyr-build-riser',kind:'riser',at:20,endAt:20.6,duration:.6,sectionId:'pyr-build',sectionType:'pyramid',routineEight:5,sectionArcStage:'build',confidence:.86,intensityScore:.76},
+  {id:'pyr-build-hit',kind:'impact',at:20.6,sectionId:'pyr-build',sectionType:'pyramid',routineEight:5,sectionArcStage:'build',confidence:.86,intensityScore:.76},
+  {id:'pyr-peak-riser',kind:'riser',at:23.4,endAt:24,duration:.6,sectionId:'pyr-peak',sectionType:'pyramid',routineEight:8,sectionArcStage:'peak',phraseHeroEligible:true,confidence:.95,intensityScore:.97},
+  {id:'pyr-peak-hit',kind:'impact',at:24,sectionId:'pyr-peak',sectionType:'pyramid',routineEight:8,sectionArcStage:'peak',phraseHeroEligible:true,confidence:.95,intensityScore:.97},
+  {id:'ending-drive-riser',kind:'riser',at:30.6,endAt:31,duration:.4,sectionId:'ending-drive',sectionType:'ending',routineEight:9,sectionArcStage:'drive',confidence:.9,intensityScore:.88},
+  {id:'ending-drive-hit',kind:'impact',at:31,sectionId:'ending-drive',sectionType:'ending',routineEight:9,sectionArcStage:'drive',confidence:.9,intensityScore:.88},
+  {id:'ending-peak-riser',kind:'riser',at:33.6,endAt:34,duration:.4,sectionId:'ending-peak',sectionType:'ending',routineEight:12,sectionArcStage:'peak',phraseHeroEligible:true,confidence:.96,intensityScore:.99},
+  {id:'ending-peak-hit',kind:'impact',at:34,sectionId:'ending-peak',sectionType:'ending',routineEight:12,sectionArcStage:'peak',phraseHeroEligible:true,confidence:.96,intensityScore:.99}
+];
+const sectionPolicySnapshot=JSON.stringify(sectionPolicyAnchors);
+const policySelected=core.selectPatternHits(sectionPolicyAnchors);
+const policyById=id=>policySelected.find(a=>a.id===id);
+assert.equal(policyById('pyr-build-hit').hitRole,'support','pyramid build should support the later phrase peak');
+assert.equal(policyById('pyr-build-hit').supportPolicy,'pyramid-build-support');
+assert.equal(policyById('pyr-build-riser').hitRole,'support-build');
+assert.equal(policyById('pyr-peak-hit').hitRole,'principal');
+assert.equal(policyById('ending-drive-hit').hitRole,'omit','ending secondary hit should be removed so focus stays on the final hit');
+assert.equal(policyById('ending-drive-riser').hitRole,'omit');
+assert.equal(policyById('ending-peak-hit').hitRole,'principal');
+assert.equal(JSON.stringify(sectionPolicyAnchors),sectionPolicySnapshot,'section support selection must not mutate source anchors');
+const policyEvents=core.buildRenderEvents(sectionPolicyAnchors,40);
+assert.ok(policyEvents.some(e=>e.id==='pyr-build-hit'),'pyramid build support must remain renderable');
+assert.ok(policyEvents.some(e=>e.id==='pyr-build-riser'),'pyramid support riser must remain renderable');
+assert.ok(!policyEvents.some(e=>e.id==='ending-drive-hit'),'ending secondary impact must stay out of rendered audio');
+assert.ok(!policyEvents.some(e=>e.id==='ending-drive-riser'),'ending secondary riser must stay out of rendered audio');
+const pyrBuildEvent=policyEvents.find(e=>e.id==='pyr-build-hit');
+const pyrPeakEvent=policyEvents.find(e=>e.id==='pyr-peak-hit');
+assert.ok(pyrPeakEvent.strength>pyrBuildEvent.strength,'pyramid peak must remain stronger than its build support');
+assert.equal(pyrBuildEvent.at,20.6,'support policy must not move pyramid build timing');
+assert.equal(pyrPeakEvent.at,24,'support policy must not move pyramid peak timing');
 
 const events=core.buildRenderEvents([
   {id:'late',kind:'impact',at:18,sectionType:'ending',confidence:.8,intensityScore:.96,intensity:'hero'},
