@@ -9,8 +9,11 @@ assert.equal(core.classifyIntensity(.5),'medium');
 assert.equal(core.classifyIntensity(.2),'light');
 
 const endingImpact=core.scoreEvent({...baseEvent,kind:'impact',sectionType:'ending'});
+const basketImpact=core.scoreEvent({...baseEvent,kind:'impact',sectionType:'basket'});
 const introWhoosh=core.scoreEvent({...baseEvent,kind:'whoosh',sectionType:'intro'});
 assert(endingImpact>introWhoosh,'ending impact should be stronger than intro whoosh');
+assert(basketImpact>introWhoosh,'basket impact should use high-impact section intensity');
+assert.equal(core.SECTION_INTENSITY.basket,.94);
 
 const fxPlan={
   kind:'cheer-fx-plan',status:'preview-ready',bpm:152,riskFlags:[],events:[
