@@ -36,6 +36,46 @@
     }));
   }
 
+  function transitionFadeSeconds(step={},bpm){
+    const tempo=finite(bpm);
+    if(!(tempo>0))return 0;
+    const countSeconds=60/tempo;
+    const type=String(step?.sectionType||'other');
+    const rating=String(step?.transition?.qualityRating||'unavailable');
+    let seconds=.014;
+    if(['stunt','basket','pyramid','ending'].includes(type))seconds=.008;
+    else if(['dance','tumbling'].includes(type))seconds=.020;
+    else if(type==='transition')seconds=.024;
+    if(rating==='weak')seconds=Math.max(seconds,.026);
+    if(rating==='risky')seconds=Math.max(seconds,.032);
+    return Math.min(countSeconds*.10,seconds);
+  }
+
+  function applyCountSafeMicrofades(clips=[],sequence=[],bpm){
+    const transitions=[];
+    for(let i=1;i<clips.length;i++){
+      const previous=clips[i-1],current=clips[i],step=sequence[i]||{};
+      const fade=transitionFadeSeconds(step,bpm);
+      if(!(fade>0))continue;
+      previous.fadeOut=Math.max(finite(previous.fadeOut),fade);
+      current.fadeIn=Math.max(finite(current.fadeIn),fade);
+      const applied={
+        fromSectionId:previous?.smartMix?.sectionId||null,
+        toSectionId:current?.smartMix?.sectionId||null,
+        type:'count-safe-microfade',
+        fadeSeconds:fade,
+        qualityRating:step?.transition?.qualityRating||'unavailable',
+        preservesTimelineStart:true,
+        preservesTimelineDuration:true,
+        preservesSourceOffset:true
+      };
+      transitions.push(applied);
+      previous.smartMix={...(previous.smartMix||{}),transitionOut:applied};
+      current.smartMix={...(current.smartMix||{}),transitionIn:applied};
+    }
+    return transitions;
+  }
+
   function buildAudioTimelinePlan(sequence=[],bpm,{startAt=0}={}){
     const tempo=finite(bpm);
     if(!(tempo>0))return {status:'blocked',reason:'bpm-required',clips:[],duration:0,compatibleWith:'audioTimeline.clips',nonDestructive:true,executable:false};
@@ -73,10 +113,12 @@
       });
       cursor+=duration;
     }
+    const appliedTransitions=applyCountSafeMicrofades(clips,sequence,tempo);
     return {
       status:risks.length?'review-required':'preview-ready',
       reason:risks.length?'incomplete-source-timeline-data':null,
       clips,
+      transitions:appliedTransitions,
       duration:Math.max(0,cursor-Math.max(0,finite(startAt))),
       startAt:Math.max(0,finite(startAt)),
       bpm:tempo,
@@ -172,6 +214,7 @@
       summary:{
         sections:sequence.length,
         transitions:Array.isArray(review?.transitions)?review.transitions.length:0,
+        renderedTransitions:audioTimelinePlan.transitions.length,
         editActions:Array.isArray(editPlan?.actions)?editPlan.actions.length:0,
         timelineClips:audioTimelinePlan.clips.length,
         timelineDuration:audioTimelinePlan.duration,
@@ -182,7 +225,7 @@
     };
   }
 
-  const api={normalizeSequence,buildAudioTimelinePlan,collectRisks,packageStatus,createProposalPackage};
+  const api={normalizeSequence,transitionFadeSeconds,applyCountSafeMicrofades,buildAudioTimelinePlan,collectRisks,packageStatus,createProposalPackage};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixProposalPackageCore=api;
 })();
