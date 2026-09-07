@@ -5,6 +5,7 @@
   const timing=()=>window.CheerAudioTiming;
   const stretch=()=>window.CheerTimeStretch;
   const hqStretch=()=>window.CheerHighQualityStretch||null;
+  const fxCore=()=>window.CheerFxRenderCore||null;
   const trackFor=(project,c)=>(project.tracks||[]).find(t=>t.name===c.sourceName);
   const clipEnd=c=>(Number(c?.start)||0)+Math.max(0,Number(c?.duration)||0);
   const projectLength=project=>{
@@ -38,7 +39,11 @@
       tracks:project.tracks,
       trackAnalysis:project.trackAnalysis,
       mixSettings:clonePlain(project.mixSettings)||{},
-      audioTimeline:{...(clonePlain(project.audioTimeline)||{}),clips},
+      audioTimeline:{
+        ...(clonePlain(project.audioTimeline)||{}),
+        clips,
+        cheerFxAnchors:clonePlain(plan.cheerFxAnchors)||[]
+      },
       smartMixPreview:{active:true,source:'audioTimelinePlan',nonDestructive:true}
     };
   }
@@ -72,6 +77,30 @@
     source.connect(clipGain).connect(duckGain).connect(offline.destination);
     const renderedOffset=pitchPreserved?ts.renderedSourceOffset(plan.sourceOffset,rate):plan.sourceOffset;source.start(plan.when,renderedOffset,timelineDuration);return true;
   }
+  function scheduleImpactVoice(offline,event,voice){
+    const duration=Math.max(.005,Number(voice?.duration)||0),at=Math.max(0,Number(event?.at)||0),end=at+duration,gainValue=Math.max(.0001,Number(voice?.gain)||.0001);
+    const oscillator=offline.createOscillator(),gain=offline.createGain();
+    oscillator.type=voice?.wave||'sine';
+    oscillator.frequency.setValueAtTime(Math.max(1,Number(voice?.startHz)||72),at);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(1,Number(voice?.endHz)||46),end);
+    gain.gain.setValueAtTime(.0001,at);
+    gain.gain.linearRampToValueAtTime(gainValue,Math.min(end,at+.002));
+    gain.gain.exponentialRampToValueAtTime(.0001,end);
+    oscillator.connect(gain).connect(offline.destination);
+    oscillator.start(at);oscillator.stop(end);
+  }
+  function scheduleCheerFx(offline,project,duration){
+    const anchors=project?.audioTimeline?.cheerFxAnchors||[],core=fxCore();
+    if(!core?.buildRenderEvents||!anchors.length)return 0;
+    const events=core.buildRenderEvents(anchors,duration);let scheduled=0;
+    for(const event of events){
+      if(event.kind!=='impact'||event.at>duration)continue;
+      scheduleImpactVoice(offline,event,event.low);
+      scheduleImpactVoice(offline,event,event.transient);
+      scheduled++;
+    }
+    return scheduled;
+  }
   async function renderProject(project,onProgress=()=>{}){
     if(!project?.audioTimeline?.clips?.length)throw new Error('Aikajanalla ei ole clippejä.');
     if(!window.OfflineAudioContext&&!window.webkitOfflineAudioContext)throw new Error('OfflineAudioContext ei ole käytettävissä tässä selaimessa.');
@@ -82,6 +111,7 @@
     onProgress({phase:'prepare',done:0,total:1});const buffers=await decodeTracks(project,onProgress);const offline=new Offline(CHANNELS,length,SAMPLE_RATE),stretched=await prepareStretchedBuffers(offline,project,buffers,onProgress);let scheduled=0;
     for(const c of project.audioTimeline.clips)if(scheduleClip(offline,project,c,buffers,stretched,duration))scheduled++;
     if(!scheduled)throw new Error('Yhtään audioclippiä ei voitu ajoittaa renderöintiin.');
+    scheduleCheerFx(offline,project,duration);
     onProgress({phase:'render',done:0,total:1});const rendered=await offline.startRendering();onProgress({phase:'render',done:1,total:1});
     if(rendered.sampleRate!==SAMPLE_RATE)throw new Error(`Offline-renderin sample rate oli ${rendered.sampleRate}, odotettiin ${SAMPLE_RATE}.`);
     if(rendered.numberOfChannels!==CHANNELS)throw new Error(`Offline-renderissä oli ${rendered.numberOfChannels} kanavaa, odotettiin stereota.`);
@@ -124,5 +154,5 @@
     const rendered=await renderTimelinePlan(project,plan,onProgress);
     return playRenderedBuffer(rendered,options);
   }
-  window.CheerOfflineRenderer={renderProject,renderTimelinePlan,previewTimelinePlan,playRenderedBuffer,projectForTimelinePlan,SAMPLE_RATE,CHANNELS,projectLength,trackKey};
+  window.CheerOfflineRenderer={renderProject,renderTimelinePlan,previewTimelinePlan,playRenderedBuffer,projectForTimelinePlan,SAMPLE_RATE,CHANNELS,projectLength,trackKey,scheduleCheerFx};
 })();
