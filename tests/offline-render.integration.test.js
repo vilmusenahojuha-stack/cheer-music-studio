@@ -6,9 +6,10 @@ const Timing=require('../audio-timing-core.js');
 
 class FakeParam{constructor(){this.events=[];this.value=1}cancelScheduledValues(t){this.events.push(['cancel',t])}setValueAtTime(v,t){this.value=v;this.events.push(['set',v,t])}linearRampToValueAtTime(v,t){this.value=v;this.events.push(['ramp',v,t])}}
 class FakeGain{constructor(log){this.gain=new FakeParam();this.log=log;this.log?.push(this)}connect(n){return n}}
-class FakeSource{constructor(log){this.log=log;this.playbackRate=new FakeParam();this.buffer=null}connect(n){return n}start(when,offset,duration){this.log.push({when,offset,duration,rate:this.playbackRate.value})}}
+class FakeSource{constructor(log){this.log=log;this.playbackRate=new FakeParam();this.buffer=null;this.onended=null;this.stopped=false}connect(n){this.connected=n;return n}start(when,offset,duration){this.log.push({when,offset,duration,rate:this.playbackRate.value,source:this})}stop(){this.stopped=true;if(this.onended)this.onended()}}
 class FakeDecodeContext{async decodeAudioData(){return{duration:120,sampleRate:44100,numberOfChannels:2}}close(){return Promise.resolve()}}
-class FakeOfflineContext{constructor(channels,length,sampleRate){this.channels=channels;this.length=length;this.sampleRate=sampleRate;this.destination={};this.starts=[];this.gains=[];FakeOfflineContext.last=this}createBufferSource(){return new FakeSource(this.starts)}createGain(){return new FakeGain(this.gains)}async startRendering(){const len=this.length,ch=this.channels,sr=this.sampleRate;return{sampleRate:sr,length:len,numberOfChannels:ch,getChannelData(){return new Float32Array(len)}}}}
+class FakeOfflineContext{constructor(channels,length,sampleRate){this.channels=channels;this.length=length;this.sampleRate=sampleRate;this.destination={};this.starts=[];this.gains=[];FakeOfflineContext.last=this}createBufferSource(){return new FakeSource(this.starts)}createGain(){return new FakeGain(this.gains)}async startRendering(){const len=this.length,ch=this.channels,sr=this.sampleRate;return{sampleRate:sr,length:len,duration:len/sr,numberOfChannels:ch,getChannelData(){return new Float32Array(len)}}}}
+class FakePreviewContext{constructor(){this.currentTime=10;this.state='running';this.destination={};this.starts=[];this.closed=false;this.source=null}createBufferSource(){this.source=new FakeSource(this.starts);return this.source}close(){this.closed=true;return Promise.resolve()}resume(){this.state='running';return Promise.resolve()}}
 
 const windowObj={AudioContext:FakeDecodeContext,OfflineAudioContext:FakeOfflineContext,CheerMixDSP:DSP,CheerAudioTiming:Timing};windowObj.window=windowObj;
 const sandbox={window:windowObj,document:{querySelector(){return null}},console,fetch:async()=>({ok:true,arrayBuffer:async()=>new ArrayBuffer(16)}),setTimeout,clearTimeout};sandbox.globalThis=sandbox;
@@ -50,7 +51,21 @@ vm.createContext(sandbox);vm.runInContext(fs.readFileSync(require.resolve('../of
   assert.equal(smartCtx.starts[1].offset,10,'second Smart Mix source offset must reach shared renderer');
   assert.ok(Math.abs((smartCtx.starts[0].when+smartCtx.starts[0].duration)-smartCtx.starts[1].when)<1e-9,'Smart Mix preview handoff must remain sample-timeline aligned');
   assert.equal(JSON.stringify(project.audioTimeline),originalTimeline,'rendering Smart Mix preview must leave saved timeline untouched');
+
+  const previewAudioContext=new FakePreviewContext();
+  let ended=false;
+  const playback=await windowObj.CheerOfflineRenderer.previewTimelinePlan(project,smartMixPlan,()=>{},{context:previewAudioContext,onEnded:()=>{ended=true}});
+  assert.equal(playback.nonDestructive,true,'audible preview must remain explicitly non-destructive');
+  assert.equal(playback.buffer.sampleRate,48000,'audible preview must play the same 48 kHz render produced by shared export DSP');
+  assert.equal(previewAudioContext.starts.length,1,'rendered Smart Mix must be scheduled as one coherent preview buffer');
+  assert.equal(previewAudioContext.source.buffer,playback.buffer,'preview source must use the exact rendered buffer');
+  assert.equal(playback.isPlaying(),true);
+  previewAudioContext.currentTime+=1.25;assert.ok(Math.abs(playback.currentTime()-1.25)<1e-9,'preview controller must expose playback position');
+  playback.stop();assert.equal(playback.isPlaying(),false);assert.equal(previewAudioContext.source.stopped,true);assert.equal(ended,true);
+  assert.equal(JSON.stringify(project.audioTimeline),originalTimeline,'audible Smart Mix preview must leave saved timeline untouched');
+
   await assert.rejects(()=>windowObj.CheerOfflineRenderer.renderTimelinePlan(project,{...smartMixPlan,status:'review-required'}),/preview-ready/);
+  await assert.rejects(()=>windowObj.CheerOfflineRenderer.previewTimelinePlan(project,{...smartMixPlan,status:'review-required'},()=>{},{context:new FakePreviewContext()}),/preview-ready/);
   await assert.rejects(()=>windowObj.CheerOfflineRenderer.renderTimelinePlan(project,{status:'preview-ready',clips:[{id:'missing',type:'music',sourceName:'missing',start:0,duration:1,sourceOffset:0}]}),/lähdeaudiota ei löytynyt/);
 
   const tail={...project,duration:5,audioTimeline:{clips:[{id:'tail',type:'fx',sourceName:'fx',start:7,duration:2,sourceOffset:0,volume:1,fadeIn:0,fadeOut:0}]}};
@@ -59,5 +74,5 @@ vm.createContext(sandbox);vm.runInContext(fs.readFileSync(require.resolve('../of
 
   const bad={...project,audioTimeline:{clips:[{id:'bad',type:'music',sourceName:'a',start:-1,duration:1,sourceOffset:0}]}};
   await assert.rejects(()=>windowObj.CheerOfflineRenderer.renderProject(bad),/virheellinen ajoitus/,'invalid clip timing must fail before master render');
-  console.log('offline-render integration: shared DSP + non-destructive Smart Mix preview render passed');
+  console.log('offline-render integration: shared DSP + audible non-destructive Smart Mix preview passed');
 })().catch(err=>{console.error(err);process.exitCode=1});
