@@ -30,10 +30,45 @@ const overlap=core.transitionCompatibility({startEight:1,endEight:4},{startEight
 assert.equal(overlap.overlap,true);
 assert.equal(overlap.ordered,false);
 assert.equal(overlap.score,0);
+assert.equal(overlap.sourceChanged,false);
 
 const gap=core.transitionCompatibility({startEight:1,endEight:4},{startEight:7,endEight:10},{idealGapEights:0,maxGapEights:8});
 assert.equal(gap.gapEights,2);
 assert.ok(gap.score<1&&gap.score>0);
+
+const crossTrack=core.transitionCompatibility(
+  {sourceName:'song-a.wav',trackId:'a',startEight:17,endEight:20},
+  {sourceName:'song-b.wav',trackId:'b',startEight:3,endEight:6}
+);
+assert.equal(crossTrack.ordered,true,'different tracks use independent source-local eight-counts');
+assert.equal(crossTrack.overlap,false);
+assert.equal(crossTrack.gapEights,0);
+assert.equal(crossTrack.score,1);
+assert.equal(crossTrack.sourceChanged,true);
+
+const multiTrack=core.optimizeSequence([
+  {sectionId:'intro',sectionType:'intro',candidates:[
+    {sourceName:'song-a.wav',trackId:'a',startEight:17,endEight:20,score:.93,features:{averageEnergy:.35}}
+  ]},
+  {sectionId:'stunt',sectionType:'stunt',candidates:[
+    {sourceName:'song-b.wav',trackId:'b',startEight:3,endEight:6,score:.95,dropConfidence:.9,features:{averageEnergy:.78,entryTransitionStrength:.9}}
+  ]},
+  {sectionId:'dance',sectionType:'dance',candidates:[
+    {sourceName:'song-c.wav',trackId:'c',startEight:1,endEight:4,score:.92,features:{averageEnergy:.72,continuity:.85}}
+  ]}
+]);
+assert.equal(multiTrack.matchedSections,3);
+assert.equal(multiTrack.coverage,1);
+assert.deepEqual(multiTrack.sequence.map(s=>s.candidate.sourceName),['song-a.wav','song-b.wav','song-c.wav']);
+assert.equal(multiTrack.sequence[1].transition.sourceChanged,true);
+assert.equal(multiTrack.sequence[2].transition.sourceChanged,true);
+
+const sameTrackBackward=core.optimizeSequence([
+  {sectionId:'a',candidates:[{sourceName:'song-a.wav',trackId:'a',startEight:10,endEight:12,score:.9}]},
+  {sectionId:'b',candidates:[{sourceName:'song-a.wav',trackId:'a',startEight:1,endEight:3,score:.95}]}
+]);
+assert.equal(sameTrackBackward.reason,'no-valid-ordered-sequence');
+assert.equal(sameTrackBackward.coverage,0);
 
 const impossible=core.optimizeSequence([
   {sectionId:'a',candidates:[{startEight:10,endEight:12,score:.9}]},
