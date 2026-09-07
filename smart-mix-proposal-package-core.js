@@ -25,6 +25,10 @@
       order:index+1,
       sectionId:step?.sectionId||null,
       sectionType:step?.sectionType||step?.sectionId||'other',
+      sourceName:step?.candidate?.sourceName||null,
+      trackId:step?.candidate?.trackId||null,
+      sourceStart:step?.candidate?.start==null?null:finite(step.candidate.start),
+      sourceEnd:step?.candidate?.end==null?null:finite(step.candidate.end),
       startEight:finite(step?.candidate?.startEight,null),
       endEight:finite(step?.candidate?.endEight,null),
       matchScore:step?.candidate?.score==null?null:clamp01(step.candidate.score),
@@ -32,20 +36,75 @@
     }));
   }
 
-  function collectRisks(review={},editPlan=null,iterative=null){
+  function buildAudioTimelinePlan(sequence=[],bpm,{startAt=0}={}){
+    const tempo=finite(bpm);
+    if(!(tempo>0))return {status:'blocked',reason:'bpm-required',clips:[],duration:0,compatibleWith:'audioTimeline.clips',nonDestructive:true,executable:false};
+    const eightSeconds=480/tempo;
+    let cursor=Math.max(0,finite(startAt));
+    const clips=[];
+    const risks=[];
+    for(const step of Array.isArray(sequence)?sequence:[]){
+      const firstEight=finite(step?.startEight,null),lastEight=finite(step?.endEight,null);
+      const count=firstEight==null||lastEight==null?0:Math.max(0,lastEight-firstEight+1);
+      const sourceOffset=finite(step?.sourceStart,-1);
+      const sourceEnd=finite(step?.sourceEnd,-1);
+      if(!step?.sourceName||count<1||sourceOffset<0){
+        risks.push({sectionId:step?.sectionId||null,reason:'missing-source-timeline-data'});
+        continue;
+      }
+      const duration=count*eightSeconds;
+      if(sourceEnd>=0&&sourceEnd-sourceOffset<=0){
+        risks.push({sectionId:step?.sectionId||null,reason:'invalid-source-range'});
+        continue;
+      }
+      clips.push({
+        id:`smartmix-${step.order}-${String(step.sectionId||step.sectionType||'section').replace(/[^a-z0-9_-]+/gi,'-')}`,
+        type:'music',
+        sourceName:step.sourceName,
+        sourceTrackId:step.trackId||null,
+        name:step.sourceName,
+        start:cursor,
+        sourceOffset,
+        duration,
+        volume:1,
+        fadeIn:0,
+        fadeOut:0,
+        smartMix:{sectionId:step.sectionId||null,sectionType:step.sectionType||'other',sourceStartEight:firstEight,sourceEndEight:lastEight,matchScore:step.matchScore}
+      });
+      cursor+=duration;
+    }
+    return {
+      status:risks.length?'review-required':'preview-ready',
+      reason:risks.length?'incomplete-source-timeline-data':null,
+      clips,
+      duration:Math.max(0,cursor-Math.max(0,finite(startAt))),
+      startAt:Math.max(0,finite(startAt)),
+      bpm:tempo,
+      eightSeconds,
+      risks,
+      compatibleWith:'audioTimeline.clips',
+      nonDestructive:true,
+      executable:false,
+      safePreviewOnly:true
+    };
+  }
+
+  function collectRisks(review={},editPlan=null,iterative=null,audioTimelinePlan=null){
     const risks=new Set(Array.isArray(review?.riskFlags)?review.riskFlags:[]);
     if(editPlan?.conflicts?.length)risks.add('edit-action-conflict');
     if(editPlan&&!editPlan?.summary?.readyForPreview)risks.add('edit-plan-not-preview-ready');
     if(iterative?.reason==='cycle-detected')risks.add('optimization-cycle-detected');
     if(iterative?.reason==='max-iterations-reached')risks.add('optimization-limit-reached');
     if(iterative?.nonDestructive===false)risks.add('unsafe-optimization-result');
+    if(audioTimelinePlan?.status==='review-required')risks.add('audio-timeline-plan-incomplete');
     return [...risks];
   }
 
-  function packageStatus({review,editPlan,risks}){
+  function packageStatus({review,editPlan,risks,audioTimelinePlan}){
     if(!review)return 'blocked';
     if(risks.includes('edit-action-conflict')||risks.includes('unsafe-optimization-result'))return 'blocked';
-    if(review.readyForPreview&&(!editPlan||editPlan.summary?.readyForPreview))return 'preview-ready';
+    if(audioTimelinePlan?.status==='blocked')return 'blocked';
+    if(review.readyForPreview&&(!editPlan||editPlan.summary?.readyForPreview)&&audioTimelinePlan?.status==='preview-ready')return 'preview-ready';
     return 'review-required';
   }
 
@@ -74,9 +133,10 @@
     }
 
     const sequence=normalizeSequence(optimized?.sequence);
-    const risks=collectRisks(review,editPlan,iterative);
-    const status=packageStatus({review,editPlan,risks});
     const bpm=finite(input?.smartMixProposal?.bpm,input?.bpm||0);
+    const audioTimelinePlan=buildAudioTimelinePlan(sequence,bpm,{startAt:options.timelineStartAt||0});
+    const risks=collectRisks(review,editPlan,iterative,audioTimelinePlan);
+    const status=packageStatus({review,editPlan,risks,audioTimelinePlan});
 
     return {
       version:1,
@@ -87,6 +147,7 @@
       executable:false,
       safePreviewOnly:true,
       sequence,
+      audioTimelinePlan,
       transitions:Array.isArray(review?.transitions)?review.transitions:[],
       editPlan,
       quality:{
@@ -112,6 +173,8 @@
         sections:sequence.length,
         transitions:Array.isArray(review?.transitions)?review.transitions.length:0,
         editActions:Array.isArray(editPlan?.actions)?editPlan.actions.length:0,
+        timelineClips:audioTimelinePlan.clips.length,
+        timelineDuration:audioTimelinePlan.duration,
         conflicts:Array.isArray(editPlan?.conflicts)?editPlan.conflicts.length:0,
         riskCount:risks.length,
         readyForPreview:status==='preview-ready'
@@ -119,7 +182,7 @@
     };
   }
 
-  const api={normalizeSequence,collectRisks,packageStatus,createProposalPackage};
+  const api={normalizeSequence,buildAudioTimelinePlan,collectRisks,packageStatus,createProposalPackage};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixProposalPackageCore=api;
 })();
