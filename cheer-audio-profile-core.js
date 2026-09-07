@@ -8,6 +8,12 @@
 
   function clamp01(value){return Math.max(0,Math.min(1,finite(value)));}
 
+  function sourceMeta(options={}){
+    const sourceName=options.sourceName==null?null:String(options.sourceName);
+    const trackId=options.trackId==null?null:String(options.trackId);
+    return {sourceName,trackId};
+  }
+
   function percentile(values,p){
     if(!values.length)return 0;
     const sorted=[...values].sort((a,b)=>a-b);
@@ -35,7 +41,7 @@
     return {rms,peak,crestDb:rms>1e-9?20*Math.log10(Math.max(rms,peak)/rms):0,onsetFlux:absFlux/length};
   }
 
-  function analyzeEightCountEnergy(samples,{sampleRate,bpm,oneOffset=0,totalEights=0}={}){
+  function analyzeEightCountEnergy(samples,{sampleRate,bpm,oneOffset=0,totalEights=0,sourceName=null,trackId=null}={}){
     const sr=finite(sampleRate);
     const tempo=finite(bpm);
     if(!samples||typeof samples.length!=='number')throw new Error('PCM samples are required.');
@@ -47,12 +53,13 @@
     const sampleRoundingTolerance=4/sr;
     const inferred=Math.floor((available+sampleRoundingTolerance)/eightSeconds);
     const count=Math.max(0,Math.min(inferred,Math.floor(finite(totalEights,inferred)||inferred)));
+    const source=sourceMeta({sourceName,trackId});
     const rows=[];
     for(let i=0;i<count;i++){
       const startTime=offset+i*eightSeconds;
       const endTime=startTime+eightSeconds;
       const stats=frameStats(samples,startTime*sr,endTime*sr);
-      rows.push({eight:i+1,start:startTime,end:endTime,...stats});
+      rows.push({eight:i+1,start:startTime,end:endTime,...source,...stats});
     }
     if(!rows.length)return [];
 
@@ -82,17 +89,20 @@
     const events=[];
     for(let i=1;i<profile.length;i++){
       const previous=profile[i-1],current=profile[i];
+      const sameSource=(current?.trackId&&previous?.trackId)?current.trackId===previous.trackId:(current?.sourceName||null)===(previous?.sourceName||null);
+      if(!sameSource)continue;
       const delta=finite(current.energyScore)-finite(previous.energyScore);
+      const source={sourceName:current?.sourceName||null,trackId:current?.trackId||null};
       if(delta<=-breakThreshold){
-        events.push({type:'break',atEight:current.eight,time:current.start,delta,confidence:clamp01(.55+Math.abs(delta)*.7)});
+        events.push({type:'break',atEight:current.eight,time:current.start,...source,delta,confidence:clamp01(.55+Math.abs(delta)*.7)});
       }else if(delta>=dropThreshold){
-        events.push({type:'drop',atEight:current.eight,time:current.start,delta,confidence:clamp01(.55+delta*.7)});
+        events.push({type:'drop',atEight:current.eight,time:current.start,...source,delta,confidence:clamp01(.55+delta*.7)});
       }
     }
     return events;
   }
 
-  const api={percentile,frameStats,analyzeEightCountEnergy,detectAudioEnergyEvents};
+  const api={sourceMeta,percentile,frameStats,analyzeEightCountEnergy,detectAudioEnergyEvents};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerAudioProfileCore=api;
 })();
