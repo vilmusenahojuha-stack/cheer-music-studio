@@ -20,7 +20,7 @@
   function structuralPriority(sectionType,kind){
     const section=String(sectionType||'').toLowerCase();
     const base=SECTION_PRIORITY[section]??.8;
-    return clamp(kind==='riser'?base*.82:base,0,1);
+    return clamp(kind==='riser'?base*.60:base,0,1);
   }
 
   function applyStructuralIntensity(anchors=[],options={}){
