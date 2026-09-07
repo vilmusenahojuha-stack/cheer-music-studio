@@ -16,6 +16,7 @@
     return{
       id:String(anchor.id||`cheer-impact-${Math.round(at*1000)}`),
       kind:'impact',
+      fxKind:'impact',
       at,
       duration:.16,
       sectionId:anchor.sectionId||null,
@@ -34,19 +35,22 @@
     if(anchor.kind!=='riser'||!ALLOWED_SECTIONS.has(sectionType))return null;
     const at=finite(anchor.at,NaN),duration=finite(anchor.duration,0),endAt=finite(anchor.endAt,at+duration);
     if(!Number.isFinite(at)||at<0||!(duration>0)||!Number.isFinite(endAt)||endAt<=at)return null;
+    const safeDuration=Math.min(duration,endAt-at);
     const confidence=clamp(finite(anchor.confidence,.72),0,1);
     const strength=clamp(.45+.35*confidence,.35,.8);
     return{
       id:String(anchor.id||`cheer-riser-${Math.round(at*1000)}`),
-      kind:'riser',
+      kind:'impact',
+      fxKind:'riser',
       at,
       endAt,
-      duration:Math.min(duration,endAt-at),
+      duration:safeDuration,
       sectionId:anchor.sectionId||null,
       sectionType,
       confidence,
       strength,
-      sweep:{wave:'sawtooth',startHz:220,endHz:1450,duration:Math.min(duration,endAt-at),gain:.018*strength},
+      low:{wave:'sawtooth',startHz:210,endHz:1180,duration:safeDuration,gain:.012*strength},
+      transient:{wave:'triangle',startHz:430,endHz:1680,duration:safeDuration,gain:.007*strength},
       preservesTimelineTiming:true,
       nonDestructive:true
     };
@@ -62,7 +66,7 @@
       .map(renderSpec)
       .filter(Boolean)
       .filter(event=>event.at<=limit&&event.at+event.duration<=limit+1e-9)
-      .sort((a,b)=>a.at-b.at||(a.kind==='riser'?-1:1));
+      .sort((a,b)=>a.at-b.at||(a.fxKind==='riser'?-1:1));
   }
 
   const api={ALLOWED_SECTIONS,impactRenderSpec,riserRenderSpec,renderSpec,buildRenderEvents};
