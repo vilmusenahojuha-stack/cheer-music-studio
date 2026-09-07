@@ -4,6 +4,12 @@
   const ALLOWED_SECTIONS=new Set(['stunt','basket','pyramid','ending']);
   const HIT_ROLE_FACTOR=Object.freeze({principal:1,support:.82,omit:0});
   const ARC_PRIORITY=Object.freeze({peak:4,drive:3,build:2,release:1});
+  const SECTION_SUPPORT_POLICY=Object.freeze({
+    stunt:Object.freeze({id:'stunt-clean-support',supportFactor:.82,supportBuildFactor:.78,allowBuildSupport:false,allowReleaseSupport:false,omitSecondary:false}),
+    basket:Object.freeze({id:'basket-snap-support',supportFactor:.72,supportBuildFactor:.66,allowBuildSupport:false,allowReleaseSupport:false,omitSecondary:false}),
+    pyramid:Object.freeze({id:'pyramid-build-support',supportFactor:.84,supportBuildFactor:.88,allowBuildSupport:true,allowReleaseSupport:false,omitSecondary:false}),
+    ending:Object.freeze({id:'ending-final-focus',supportFactor:.56,supportBuildFactor:.52,allowBuildSupport:false,allowReleaseSupport:false,omitSecondary:true})
+  });
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const finite=(v,f=0)=>{const n=Number(v);return Number.isFinite(n)?n:f;};
 
@@ -27,6 +33,20 @@
     return arc+ending+hero+intensity*.7+confidence*.3;
   }
 
+  function supportPolicyFor(sectionType){
+    return SECTION_SUPPORT_POLICY[String(sectionType||'').toLowerCase()]||Object.freeze({id:'structural-support',supportFactor:.8,supportBuildFactor:.76,allowBuildSupport:false,allowReleaseSupport:false,omitSecondary:false});
+  }
+
+  function resolveSecondaryRole(anchor={}){
+    const sectionType=String(anchor.sectionType||'').toLowerCase();
+    const arc=String(anchor.sectionArcStage||'drive').toLowerCase();
+    const policy=supportPolicyFor(sectionType);
+    if(policy.omitSecondary)return 'omit';
+    if(arc==='release'&&!policy.allowReleaseSupport)return 'omit';
+    if(arc==='build'&&!policy.allowBuildSupport)return 'omit';
+    return 'support';
+  }
+
   function selectPatternHits(anchors=[]){
     const source=Array.isArray(anchors)?anchors:[];
     const impacts=source.filter(a=>a?.kind==='impact'&&a.executable!==false&&ALLOWED_SECTIONS.has(String(a.sectionType||'').toLowerCase()));
@@ -42,24 +62,37 @@
       const sectionType=String(anchor.sectionType||'').toLowerCase();
       if(!ALLOWED_SECTIONS.has(sectionType))return {...anchor};
       const winner=winners.get(phraseGroupFor(anchor));
-      let hitRole=winner&&winner.id===anchor.id?'principal':'support';
-      const arc=String(anchor.sectionArcStage||'drive').toLowerCase();
-      if(hitRole==='support'&&(arc==='build'||arc==='release'))hitRole='omit';
+      const hitRole=winner&&winner.id===anchor.id?'principal':resolveSecondaryRole(anchor);
+      const supportPolicy=supportPolicyFor(sectionType);
       if(anchor.sectionId)impactRoleBySection.set(anchor.sectionId,hitRole);
-      return {...anchor,hitRole,principalHitScore:principalHitScore(anchor),executable:hitRole==='omit'?false:anchor.executable};
+      return {
+        ...anchor,
+        hitRole,
+        supportPolicy:supportPolicy.id,
+        principalHitScore:principalHitScore(anchor),
+        executable:hitRole==='omit'?false:anchor.executable
+      };
     });
     return selected.map(anchor=>{
       if(anchor?.kind!=='riser'||!anchor.sectionId)return anchor;
       const pairedRole=impactRoleBySection.get(anchor.sectionId);
       if(!pairedRole)return anchor;
-      return {...anchor,hitRole:pairedRole==='principal'?'principal-build':pairedRole==='support'?'support-build':'omit',executable:pairedRole==='omit'?false:anchor.executable};
+      const supportPolicy=supportPolicyFor(anchor.sectionType);
+      return {
+        ...anchor,
+        hitRole:pairedRole==='principal'?'principal-build':pairedRole==='support'?'support-build':'omit',
+        supportPolicy:supportPolicy.id,
+        executable:pairedRole==='omit'?false:anchor.executable
+      };
     });
   }
 
   function hitRoleFactor(anchor={}){
     const role=String(anchor.hitRole||'principal');
+    const policy=supportPolicyFor(anchor.sectionType);
     if(role==='principal-build')return .94;
-    if(role==='support-build')return .78;
+    if(role==='support-build')return policy.supportBuildFactor;
+    if(role==='support')return policy.supportFactor;
     return HIT_ROLE_FACTOR[role]??1;
   }
 
@@ -79,7 +112,7 @@
       kind:'impact',fxKind:'impact',at,duration:.16,
       sectionId:anchor.sectionId||null,sectionType,confidence,
       intensityScore:Number.isFinite(Number(anchor.intensityScore))?clamp(Number(anchor.intensityScore),0,1):null,
-      intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,strength,
+      intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,supportPolicy:anchor.supportPolicy||null,strength,
       low:{wave:'sine',startHz:72,endHz:46,duration:.16,gain:.085*strength},
       transient:{wave:'triangle',startHz:920,endHz:210,duration:.042,gain:.038*strength},
       preservesTimelineTiming:true,nonDestructive:true
@@ -102,7 +135,7 @@
       kind:'impact',fxKind:'riser',at,endAt,duration:safeDuration,
       sectionId:anchor.sectionId||null,sectionType,confidence,
       intensityScore:Number.isFinite(Number(anchor.intensityScore))?clamp(Number(anchor.intensityScore),0,1):null,
-      intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,strength,
+      intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,supportPolicy:anchor.supportPolicy||null,strength,
       low:{wave:'sawtooth',startHz:210,endHz:1180,duration:safeDuration,gain:.012*strength},
       transient:{wave:'triangle',startHz:430,endHz:1680,duration:safeDuration,gain:.007*strength},
       preservesTimelineTiming:true,nonDestructive:true
@@ -119,7 +152,7 @@
       .sort((a,b)=>a.at-b.at||(a.fxKind==='riser'?-1:1));
   }
 
-  const api={ALLOWED_SECTIONS,HIT_ROLE_FACTOR,ARC_PRIORITY,intensityFactor,phraseGroupFor,principalHitScore,selectPatternHits,hitRoleFactor,impactRenderSpec,riserRenderSpec,renderSpec,buildRenderEvents};
+  const api={ALLOWED_SECTIONS,HIT_ROLE_FACTOR,ARC_PRIORITY,SECTION_SUPPORT_POLICY,intensityFactor,phraseGroupFor,principalHitScore,supportPolicyFor,resolveSecondaryRole,selectPatternHits,hitRoleFactor,impactRenderSpec,riserRenderSpec,renderSpec,buildRenderEvents};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerFxRenderCore=api;
 })();
