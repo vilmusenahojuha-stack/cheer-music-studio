@@ -9,6 +9,7 @@
     peak:Object.freeze({riser:.95,impact:1.08}),
     release:Object.freeze({riser:.82,impact:.78})
   });
+  const DEFAULT_DENSITY_POLICY=Object.freeze({maxPerEight:1,maxHeroPerFourEights:1,minSpacingSeconds:.12});
   const finite=(v,f=0)=>{const n=Number(v);return Number.isFinite(n)?n:f;};
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
@@ -116,6 +117,29 @@
     });
   }
 
+  function applyDensityPolicy(anchors=[],options={}){
+    const core=options.intensityCore||defaultIntensityCore();
+    if(!core?.enforceDensity)return anchors;
+    const policy={...DEFAULT_DENSITY_POLICY,...(options.densityPolicy||{})};
+    const impacts=(Array.isArray(anchors)?anchors:[]).filter(anchor=>anchor.kind==='impact').map(anchor=>({...anchor,eight:anchor.routineEight}));
+    if(!impacts.length)return anchors;
+    const density=core.enforceDensity(impacts,policy);
+    const keptIds=new Set(density.kept.map(anchor=>anchor.id));
+    const droppedById=new Map(density.dropped.map(anchor=>[anchor.id,anchor]));
+    const droppedSections=new Set(density.dropped.map(anchor=>anchor.sectionId).filter(Boolean));
+    return (Array.isArray(anchors)?anchors:[]).map(anchor=>{
+      if(anchor.kind==='impact'){
+        const dropped=droppedById.get(anchor.id);
+        if(dropped)return {...anchor,densityDecision:'drop',densityReason:dropped.densityReason||'fx-density-limit',executable:false};
+        if(keptIds.has(anchor.id))return {...anchor,densityDecision:'keep',densityReason:null};
+      }
+      if(anchor.kind==='riser'&&anchor.sectionId&&droppedSections.has(anchor.sectionId)){
+        return {...anchor,densityDecision:'drop',densityReason:'paired-impact-dropped',executable:false};
+      }
+      return {...anchor,densityDecision:anchor.densityDecision||'keep',densityReason:anchor.densityReason||null};
+    });
+  }
+
   function buildStructuralFxAnchors(proposalPackage={},options={}){
     const plan=proposalPackage?.audioTimelinePlan||{};
     const clips=Array.isArray(plan.clips)?plan.clips:[];
@@ -168,7 +192,8 @@
       });
     }
     const intensity=applyStructuralIntensity(anchors,options);
-    return applyPhraseEnergyShaping(intensity,proposalPackage,options).sort((a,b)=>a.at-b.at||(a.kind==='riser'?-1:1));
+    const phraseShaped=applyPhraseEnergyShaping(intensity,proposalPackage,options);
+    return applyDensityPolicy(phraseShaped,options).sort((a,b)=>a.at-b.at||(a.kind==='riser'?-1:1));
   }
 
   function attachStructuralCheerFx(proposalPackage={},options={}){
@@ -176,8 +201,11 @@
     const anchors=buildStructuralFxAnchors(proposalPackage,options);
     const impacts=anchors.filter(a=>a.kind==='impact').length;
     const risers=anchors.filter(a=>a.kind==='riser').length;
-    const hero=anchors.filter(a=>a.intensity==='hero').length;
-    const strong=anchors.filter(a=>a.intensity==='strong').length;
+    const executableAnchors=anchors.filter(a=>a.executable!==false).length;
+    const densityDropped=anchors.filter(a=>a.densityDecision==='drop').length;
+    const densityDroppedImpacts=anchors.filter(a=>a.kind==='impact'&&a.densityDecision==='drop').length;
+    const hero=anchors.filter(a=>a.intensity==='hero'&&a.executable!==false).length;
+    const strong=anchors.filter(a=>a.intensity==='strong'&&a.executable!==false).length;
     const phraseHeroEligible=anchors.filter(a=>a.kind==='impact'&&a.phraseHeroEligible).length;
     const arcBuild=anchors.filter(a=>a.sectionArcStage==='build').length;
     const arcPeak=anchors.filter(a=>a.sectionArcStage==='peak').length;
@@ -187,20 +215,21 @@
       ...proposalPackage,
       audioTimelinePlan,
       cheerFx:{
-        version:6,
-        status:anchors.length?'preview-executable':'no-structural-impact-anchors',
-        mode:'structural-riser-impact-section-arc-synth-v1',
+        version:7,
+        status:executableAnchors?'preview-executable':'no-structural-impact-anchors',
+        mode:'structural-riser-impact-section-arc-density-synth-v1',
         nonDestructive:true,
-        executable:anchors.length>0,
+        executable:executableAnchors>0,
         safePreviewOnly:true,
+        densityPolicy:{...DEFAULT_DENSITY_POLICY,...(options.densityPolicy||{})},
         anchors,
-        summary:{anchors:anchors.length,impacts,risers,hero,strong,phraseHeroEligible,arcBuild,arcPeak,arcRelease}
+        summary:{anchors:anchors.length,executableAnchors,densityDropped,densityDroppedImpacts,impacts,risers,hero,strong,phraseHeroEligible,arcBuild,arcPeak,arcRelease}
       },
-      summary:{...(proposalPackage.summary||{}),cheerFxAnchors:anchors.length,cheerFxImpacts:impacts,cheerFxRisers:risers,cheerFxHero:hero,cheerFxStrong:strong,cheerFxPhraseHeroEligible:phraseHeroEligible,cheerFxArcBuild:arcBuild,cheerFxArcPeak:arcPeak,cheerFxArcRelease:arcRelease}
+      summary:{...(proposalPackage.summary||{}),cheerFxAnchors:anchors.length,cheerFxExecutableAnchors:executableAnchors,cheerFxDensityDropped:densityDropped,cheerFxDensityDroppedImpacts:densityDroppedImpacts,cheerFxImpacts:impacts,cheerFxRisers:risers,cheerFxHero:hero,cheerFxStrong:strong,cheerFxPhraseHeroEligible:phraseHeroEligible,cheerFxArcBuild:arcBuild,cheerFxArcPeak:arcPeak,cheerFxArcRelease:arcRelease}
     };
   }
 
-  const api={HIGH_IMPACT,SECTION_PRIORITY,ARC_SCALE,countSecondsFor,eightSecondsFor,routineEightAt,structuralPriority,sectionArcFor,sectionArcScale,applyStructuralIntensity,applyPhraseEnergyShaping,buildStructuralFxAnchors,attachStructuralCheerFx};
+  const api={HIGH_IMPACT,SECTION_PRIORITY,ARC_SCALE,DEFAULT_DENSITY_POLICY,countSecondsFor,eightSecondsFor,routineEightAt,structuralPriority,sectionArcFor,sectionArcScale,applyStructuralIntensity,applyPhraseEnergyShaping,applyDensityPolicy,buildStructuralFxAnchors,attachStructuralCheerFx};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixCheerFxIntegrationCore=api;
 })();
