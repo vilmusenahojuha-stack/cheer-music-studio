@@ -36,18 +36,59 @@
     }));
   }
 
+  function mergeReviewedTransitions(sequence=[],reviewTransitions=[]){
+    const reviewed=Array.isArray(reviewTransitions)?reviewTransitions:[];
+    return (Array.isArray(sequence)?sequence:[]).map((step,index)=>{
+      if(index===0)return {...step,transition:null};
+      const existing=step?.transition||{};
+      const byIndex=reviewed.find(t=>finite(t?.index,-1)===index);
+      const bySections=reviewed.find(t=>(t?.fromSectionId||null)===(sequence[index-1]?.sectionId||null)&&(t?.toSectionId||null)===(step?.sectionId||null));
+      const quality=byIndex||bySections||null;
+      if(!quality)return {...step,transition:existing};
+      return {...step,transition:{
+        ...existing,
+        qualityScore:quality.score==null?existing.qualityScore:clamp01(quality.score),
+        qualityRating:quality.rating||existing.qualityRating||'unavailable',
+        qualityReasons:Array.isArray(quality.reasons)?quality.reasons:(existing.qualityReasons||[]),
+        qualityComponents:quality.components||existing.qualityComponents||null,
+        combinedScore:quality.combinedScore==null?existing.combinedScore:clamp01(quality.combinedScore)
+      }};
+    });
+  }
+
+  function transitionDecision(step={}){
+    const sectionType=String(step?.sectionType||'other');
+    const transition=step?.transition||{};
+    const rating=String(transition.qualityRating||'unavailable');
+    const components=transition.qualityComponents||{};
+    const reasons=new Set(Array.isArray(transition.qualityReasons)?transition.qualityReasons:[]);
+    const highImpact=['stunt','basket','pyramid','ending'].includes(sectionType);
+    const flow=['dance','tumbling','transition'].includes(sectionType);
+    const structure=clamp01(components.structure);
+    const energy=clamp01(components.energy);
+    const cut=clamp01(components.cut);
+
+    if(rating==='risky'||rating==='weak'||reasons.has('weak-cut-point')||reasons.has('weak-break-drop-structure')){
+      return {type:'guarded-cut',countLength:0,reason:'quality-protection',rating,highImpact,flow};
+    }
+    if(highImpact&&(structure>=.62||cut>=.62||['strong','good'].includes(rating))){
+      return {type:'impact-cut',countLength:0,reason:'high-impact-entry',rating,highImpact,flow};
+    }
+    if(flow&&energy>=.58&&['strong','good'].includes(rating)){
+      return {type:'flow-blend',countLength:0,reason:'flow-continuity',rating,highImpact,flow};
+    }
+    return {type:'clean-cut',countLength:0,reason:'neutral-boundary',rating,highImpact,flow};
+  }
+
   function transitionFadeSeconds(step={},bpm){
     const tempo=finite(bpm);
     if(!(tempo>0))return 0;
     const countSeconds=60/tempo;
-    const type=String(step?.sectionType||'other');
-    const rating=String(step?.transition?.qualityRating||'unavailable');
+    const decision=transitionDecision(step);
     let seconds=.014;
-    if(['stunt','basket','pyramid','ending'].includes(type))seconds=.008;
-    else if(['dance','tumbling'].includes(type))seconds=.020;
-    else if(type==='transition')seconds=.024;
-    if(rating==='weak')seconds=Math.max(seconds,.026);
-    if(rating==='risky')seconds=Math.max(seconds,.032);
+    if(decision.type==='impact-cut')seconds=.008;
+    else if(decision.type==='flow-blend')seconds=String(step?.sectionType)==='transition'?.024:.020;
+    else if(decision.type==='guarded-cut')seconds=.032;
     return Math.min(countSeconds*.10,seconds);
   }
 
@@ -57,14 +98,21 @@
       const previous=clips[i-1],current=clips[i],step=sequence[i]||{};
       const fade=transitionFadeSeconds(step,bpm);
       if(!(fade>0))continue;
+      const decision=transitionDecision(step);
       previous.fadeOut=Math.max(finite(previous.fadeOut),fade);
       current.fadeIn=Math.max(finite(current.fadeIn),fade);
       const applied={
         fromSectionId:previous?.smartMix?.sectionId||null,
         toSectionId:current?.smartMix?.sectionId||null,
-        type:'count-safe-microfade',
+        type:decision.type,
+        renderMode:'count-safe-microfade',
+        decisionReason:decision.reason,
+        countLength:decision.countLength,
         fadeSeconds:fade,
-        qualityRating:step?.transition?.qualityRating||'unavailable',
+        qualityScore:step?.transition?.qualityScore==null?null:clamp01(step.transition.qualityScore),
+        qualityRating:decision.rating,
+        qualityReasons:Array.isArray(step?.transition?.qualityReasons)?step.transition.qualityReasons:[],
+        qualityComponents:step?.transition?.qualityComponents||null,
         preservesTimelineStart:true,
         preservesTimelineDuration:true,
         preservesSourceOffset:true
@@ -174,7 +222,8 @@
       }
     }
 
-    const sequence=normalizeSequence(optimized?.sequence);
+    const normalized=normalizeSequence(optimized?.sequence);
+    const sequence=mergeReviewedTransitions(normalized,review?.transitions);
     const bpm=finite(input?.smartMixProposal?.bpm,input?.bpm||0);
     const audioTimelinePlan=buildAudioTimelinePlan(sequence,bpm,{startAt:options.timelineStartAt||0});
     const risks=collectRisks(review,editPlan,iterative,audioTimelinePlan);
@@ -215,6 +264,7 @@
         sections:sequence.length,
         transitions:Array.isArray(review?.transitions)?review.transitions.length:0,
         renderedTransitions:audioTimelinePlan.transitions.length,
+        transitionTypes:audioTimelinePlan.transitions.reduce((out,t)=>{out[t.type]=(out[t.type]||0)+1;return out;},{}),
         editActions:Array.isArray(editPlan?.actions)?editPlan.actions.length:0,
         timelineClips:audioTimelinePlan.clips.length,
         timelineDuration:audioTimelinePlan.duration,
@@ -225,7 +275,7 @@
     };
   }
 
-  const api={normalizeSequence,transitionFadeSeconds,applyCountSafeMicrofades,buildAudioTimelinePlan,collectRisks,packageStatus,createProposalPackage};
+  const api={normalizeSequence,mergeReviewedTransitions,transitionDecision,transitionFadeSeconds,applyCountSafeMicrofades,buildAudioTimelinePlan,collectRisks,packageStatus,createProposalPackage};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixProposalPackageCore=api;
 })();
