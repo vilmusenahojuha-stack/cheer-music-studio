@@ -29,9 +29,11 @@ const pcm=concat([
   makeEight(sr,bpm,.52,2)
 ]);
 
-const profile=core.analyzeEightCountEnergy(pcm,{sampleRate:sr,bpm,totalEights:5});
+const profile=core.analyzeEightCountEnergy(pcm,{sampleRate:sr,bpm,totalEights:5,sourceName:'track-a.wav',trackId:'track-a'});
 assert.equal(profile.length,5);
 assert.equal(profile[0].eight,1);
+assert.equal(profile[0].sourceName,'track-a.wav');
+assert.equal(profile[0].trackId,'track-a');
 assert.ok(profile[2].energyScore<profile[1].energyScore,'quiet eight should score lower');
 assert.ok(profile[3].energyScore>profile[2].energyScore,'drop eight should score higher');
 assert.ok(['low','medium'].includes(profile[2].energy),'quiet eight should be low/medium');
@@ -40,10 +42,16 @@ assert.ok(['high','peak'].includes(profile[3].energy),'loud eight should be high
 const events=core.detectAudioEnergyEvents(profile,{breakThreshold:.2,dropThreshold:.2});
 assert.ok(events.some(e=>e.type==='break'&&e.atEight===3),'expected break at eight 3');
 assert.ok(events.some(e=>e.type==='drop'&&e.atEight===4),'expected drop at eight 4');
+assert.ok(events.every(e=>e.sourceName==='track-a.wav'&&e.trackId==='track-a'));
 assert.ok(events.every(e=>e.confidence>=0&&e.confidence<=1));
 
-const offsetProfile=core.analyzeEightCountEnergy(concat([new Float32Array(sr),pcm]),{sampleRate:sr,bpm,oneOffset:1,totalEights:2});
+const other=profile.map(row=>({...row,sourceName:'track-b.wav',trackId:'track-b'}));
+const boundaryEvents=core.detectAudioEnergyEvents([profile[4],other[0]],{breakThreshold:.05,dropThreshold:.05});
+assert.equal(boundaryEvents.length,0,'must not create energy event across two source tracks');
+
+const offsetProfile=core.analyzeEightCountEnergy(concat([new Float32Array(sr),pcm]),{sampleRate:sr,bpm,oneOffset:1,totalEights:2,sourceName:'offset.wav'});
 assert.equal(offsetProfile.length,2);
+assert.equal(offsetProfile[0].sourceName,'offset.wav');
 assert.ok(Math.abs(offsetProfile[0].start-1)<1e-9);
 
 assert.throws(()=>core.analyzeEightCountEnergy(pcm,{sampleRate:0,bpm}),/sampleRate/);
