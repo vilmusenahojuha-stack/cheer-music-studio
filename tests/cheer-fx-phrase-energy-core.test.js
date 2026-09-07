@@ -59,6 +59,15 @@ function group(eight,sectionType,events,maxAccents=4){
 }
 
 {
+  const result=core.createCheerFxPhraseEnergyPlan(patternPlan([
+    group(10,'basket',[{kind:'impact',count:1,patternDecision:'align',intensityScore:.92}],3)
+  ]));
+  assert.equal(core.SECTION_PHASE.basket,'peak');
+  assert.equal(result.groups[0].phraseEnergy.phase,'peak');
+  assert.equal(result.groups[0].phraseEnergy.source,'section-inference');
+}
+
+{
   assert.equal(core.phraseSlot(1,1,4),1);
   assert.equal(core.phraseSlot(4,1,4),4);
   assert.equal(core.phraseSlot(5,1,4),1);
