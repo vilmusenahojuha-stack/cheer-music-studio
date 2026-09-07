@@ -94,7 +94,7 @@ assert.ok(guardedShape,'guarded-cut should create a protection shape');
 assert.ok(Math.abs(guardedShape.prepSeconds-countSeconds*.75)<1e-9,'guarded protection must span three quarters of a count');
 assert.equal(guardedShape.fadeSeconds,.032);
 assert.equal(guardedShape.floor,.42);
-assert.equal(DSP.clipEnvelopeAt(guardedClip,guardedClip.duration-guardedShape.prepSeconds),1);
+assert.ok(Math.abs(DSP.clipEnvelopeAt(guardedClip,guardedClip.duration-guardedShape.prepSeconds)-1)<1e-9,'guarded protection starts at unity gain');
 const guardedMidway=guardedClip.duration-(guardedShape.prepSeconds+guardedShape.fadeSeconds)/2;
 const guardedMidwayGain=DSP.clipEnvelopeAt(guardedClip,guardedMidway);
 assert.ok(guardedMidwayGain>.42&&guardedMidwayGain<1,'guarded region should reduce exposed weak-boundary energy gradually');
