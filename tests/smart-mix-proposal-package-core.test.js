@@ -3,9 +3,9 @@ const core=require('../smart-mix-proposal-package-core.js');
 
 const baseSequence={
   sequence:[
-    {sectionId:'intro',sectionType:'intro',candidate:{startEight:1,endEight:2,score:.82}},
-    {sectionId:'stunt',sectionType:'stunt',candidate:{startEight:3,endEight:4,score:.88},transition:{qualityScore:.8,qualityRating:'strong'}},
-    {sectionId:'dance',sectionType:'dance',candidate:{startEight:5,endEight:6,score:.85},transition:{qualityScore:.78,qualityRating:'strong'}}
+    {sectionId:'intro',sectionType:'intro',candidate:{sourceName:'song-a.wav',trackId:'track-a',start:.5,end:6.82,startEight:1,endEight:2,score:.82}},
+    {sectionId:'stunt',sectionType:'stunt',candidate:{sourceName:'song-b.wav',trackId:'track-b',start:12.4,end:18.72,startEight:3,endEight:4,score:.88},transition:{qualityScore:.8,qualityRating:'strong'}},
+    {sectionId:'dance',sectionType:'dance',candidate:{sourceName:'song-a.wav',trackId:'track-a',start:25,end:31.32,startEight:5,endEight:6,score:.85},transition:{qualityScore:.78,qualityRating:'strong'}}
   ],
   coverage:1,
   matchScore:.85,
@@ -51,14 +51,37 @@ assert.equal(packaged.safePreviewOnly,true);
 assert.equal(packaged.bpm,152);
 assert.equal(packaged.sequence.length,3);
 assert.equal(packaged.sequence[1].sectionId,'stunt');
+assert.equal(packaged.sequence[1].sourceName,'song-b.wav');
+assert.equal(packaged.sequence[1].trackId,'track-b');
 assert.equal(packaged.summary.sections,3);
 assert.equal(packaged.summary.transitions,2);
 assert.equal(packaged.summary.editActions,1);
+assert.equal(packaged.summary.timelineClips,3);
 assert.equal(packaged.summary.readyForPreview,true);
 assert.equal(packaged.optimization.improved,true);
 assert.equal(packaged.optimization.iterations,1);
 assert.equal(packaged.quality.globalScore,.84);
 assert.equal(packaged.weakestTransition.toSectionId,'dance');
+
+const eightSeconds=480/152;
+assert.equal(packaged.audioTimelinePlan.status,'preview-ready');
+assert.equal(packaged.audioTimelinePlan.compatibleWith,'audioTimeline.clips');
+assert.equal(packaged.audioTimelinePlan.nonDestructive,true);
+assert.equal(packaged.audioTimelinePlan.executable,false);
+assert.equal(packaged.audioTimelinePlan.clips.length,3);
+assert.equal(packaged.audioTimelinePlan.clips[0].sourceName,'song-a.wav');
+assert.equal(packaged.audioTimelinePlan.clips[0].sourceTrackId,'track-a');
+assert.equal(packaged.audioTimelinePlan.clips[0].sourceOffset,.5);
+assert.ok(Math.abs(packaged.audioTimelinePlan.clips[0].duration-eightSeconds*2)<1e-9);
+assert.ok(Math.abs(packaged.audioTimelinePlan.clips[1].start-eightSeconds*2)<1e-9);
+assert.ok(Math.abs(packaged.audioTimelinePlan.clips[2].start-eightSeconds*4)<1e-9);
+assert.ok(Math.abs(packaged.audioTimelinePlan.duration-eightSeconds*6)<1e-9);
+assert.equal(packaged.audioTimelinePlan.clips[1].smartMix.sectionId,'stunt');
+
+const directPlan=core.buildAudioTimelinePlan(core.normalizeSequence(baseSequence.sequence),152,{startAt:3});
+assert.equal(directPlan.clips.length,3);
+assert.equal(directPlan.clips[0].start,3);
+assert.ok(Math.abs(directPlan.duration-eightSeconds*6)<1e-9);
 
 const conflictActions={createEditPlan(){return {
   actions:[{id:'a'},{id:'b'}],conflicts:[{type:'opposing-energy-actions'}],
@@ -70,19 +93,36 @@ assert(blocked.risks.includes('edit-action-conflict'));
 assert.equal(blocked.summary.readyForPreview,false);
 
 const riskyReviewCore={reviewSequence(){return {...review,riskFlags:['weak-segment-fit'],readyForPreview:false,globalScore:.59,quality:'weak'};}};
-const reviewRequired=core.createProposalPackage({optimized:baseSequence},{reoptimize:false,reviewCore:riskyReviewCore,actionsCore:{}});
+const reviewRequired=core.createProposalPackage({optimized:baseSequence,bpm:152},{reoptimize:false,reviewCore:riskyReviewCore,actionsCore:{}});
 assert.equal(reviewRequired.status,'review-required');
 assert(reviewRequired.risks.includes('weak-segment-fit'));
 assert.equal(reviewRequired.summary.editActions,0);
 
 const badProposalActions={createEditPlan(){throw new Error('Smart Mix proposal BPM is required.');}};
-const badProposal=core.createProposalPackage({optimized:baseSequence,smartMixProposal:{decisions:[]}},{reoptimize:false,reviewCore,actionsCore:badProposalActions});
+const badProposal=core.createProposalPackage({optimized:baseSequence,smartMixProposal:{bpm:152,decisions:[]}},{reoptimize:false,reviewCore,actionsCore:badProposalActions});
 assert.equal(badProposal.status,'review-required');
 assert.equal(badProposal.editPlan.summary.readyForPreview,false);
 assert(badProposal.risks.includes('edit-plan-not-preview-ready'));
 assert.equal(badProposal.executable,false);
 
-const missingReview=core.createProposalPackage({optimized:baseSequence},{reviewCore:{},actionsCore:{},iterativeCore:{}});
+const missingSourceSequence={...baseSequence,sequence:[
+  baseSequence.sequence[0],
+  {sectionId:'stunt',sectionType:'stunt',candidate:{startEight:3,endEight:4,score:.88}},
+  baseSequence.sequence[2]
+]};
+const incomplete=core.createProposalPackage({optimized:missingSourceSequence,bpm:152},{reoptimize:false,reviewCore,actionsCore:{}});
+assert.equal(incomplete.status,'review-required');
+assert.equal(incomplete.audioTimelinePlan.status,'review-required');
+assert(incomplete.risks.includes('audio-timeline-plan-incomplete'));
+assert.equal(incomplete.audioTimelinePlan.clips.length,2);
+assert.equal(incomplete.audioTimelinePlan.risks[0].sectionId,'stunt');
+
+const noBpm=core.buildAudioTimelinePlan(core.normalizeSequence(baseSequence.sequence),0);
+assert.equal(noBpm.status,'blocked');
+assert.equal(noBpm.reason,'bpm-required');
+assert.equal(noBpm.clips.length,0);
+
+const missingReview=core.createProposalPackage({optimized:baseSequence,bpm:152},{reviewCore:{},actionsCore:{},iterativeCore:{}});
 assert.equal(missingReview.status,'blocked');
 assert.equal(missingReview.reason,'review-core-unavailable');
 assert.equal(missingReview.nonDestructive,true);
