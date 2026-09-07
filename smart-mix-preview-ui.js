@@ -83,6 +83,57 @@
     };
   }
 
+  function buildWholeMixTimelinePlan(project,proposalPackage){
+    const source=proposalPackage?.audioTimelinePlan||proposalPackage;
+    if(!source||source.status!=='preview-ready'||!Array.isArray(source.clips)||!source.clips.length){
+      return {status:'review-required',clips:[],reason:'whole-mix-proposal-not-preview-ready',nonDestructive:true,executable:false,safePreviewOnly:true};
+    }
+    const tracks=new Map((project?.tracks||[]).map(t=>[t?.name,t]));
+    const clips=[];
+    const risks=[];
+    for(const raw of source.clips){
+      const c=clone(raw);
+      const track=tracks.get(c?.sourceName);
+      if(!track){
+        risks.push({clipId:c?.id||null,sourceName:c?.sourceName||null,reason:'source-track-missing'});
+        continue;
+      }
+      const start=finite(c?.start,-1),duration=finite(c?.duration,-1),sourceOffset=finite(c?.sourceOffset,-1);
+      if(start<0||duration<=0||sourceOffset<0){
+        risks.push({clipId:c?.id||null,sourceName:c?.sourceName||null,reason:'invalid-timeline-clip'});
+        continue;
+      }
+      if(finite(track?.duration,0)>0&&sourceOffset>=finite(track.duration)){
+        risks.push({clipId:c?.id||null,sourceName:c?.sourceName||null,reason:'source-offset-out-of-range'});
+        continue;
+      }
+      c.type='music';
+      c.volume=finite(c.volume,1);
+      c.fadeIn=Math.max(0,finite(c.fadeIn,0));
+      c.fadeOut=Math.max(0,finite(c.fadeOut,0));
+      clips.push(c);
+    }
+    if(risks.length||clips.length!==source.clips.length){
+      return {status:'review-required',clips:[],risks,reason:'whole-mix-source-validation-failed',nonDestructive:true,executable:false,safePreviewOnly:true};
+    }
+    clips.sort((a,b)=>finite(a.start)-finite(b.start));
+    return {
+      status:'preview-ready',
+      kind:'smart-mix-whole-sequence-audible-preview-plan',
+      clips,
+      duration:finite(source.duration,clips.reduce((m,c)=>Math.max(m,clipEnd(c)),0)),
+      transitionsApplied:Math.max(0,clips.length-1),
+      sourceKind:proposalPackage?.kind||source?.kind||'smart-mix-2-proposal-package',
+      nonDestructive:true,
+      executable:false,
+      safePreviewOnly:true
+    };
+  }
+
+  function wholeMixPackage(project){
+    return project?.smartMixProposalPackage||project?.smartMixProposal?.package||project?.intelligentMix?.proposalPackage||null;
+  }
+
   let controller=null;
   function stopPreview(){
     try{controller?.stop?.();}catch(_){}
@@ -101,11 +152,15 @@
     const renderer=typeof window!=='undefined'?window.CheerOfflineRenderer:null;
     const btn=q('#btnPreviewSmartMix');
     if(!renderer?.previewTimelinePlan){alert('Smart Mix -preview-rendereri ei ole valmis. Päivitä sivu.');return;}
-    const plan=buildSuggestedTimelinePlan(project,plans,selectedStyles(plans));
-    if(plan.status!=='preview-ready'){alert('Analysoi siirtymät ensin.');return;}
+    const packaged=wholeMixPackage(project);
+    const plan=packaged?buildWholeMixTimelinePlan(project,packaged):buildSuggestedTimelinePlan(project,plans,selectedStyles(plans));
+    if(plan.status!=='preview-ready'){
+      alert(packaged?'Kokonainen Smart Mix -ehdotus vaatii vielä tarkistuksen.':'Analysoi siirtymät ensin.');
+      return;
+    }
     stopPreview();
     try{window.cheerAudioEditor?.stopTransport?.(false);}catch(_){}
-    if(btn){btn.disabled=true;btn.textContent='⏳ Renderöidään…';}
+    if(btn){btn.disabled=true;btn.textContent=packaged?'⏳ Rakennetaan koko mix…':'⏳ Renderöidään…';}
     try{
       controller=await renderer.previewTimelinePlan(project,plan,progress=>{
         if(!btn)return;
@@ -136,7 +191,7 @@
     observer.observe(document.body,{childList:true,subtree:true});
   }
 
-  const api={buildSuggestedTimelinePlan,applySuggestedTransition,previewSuggestedMix,stopPreview};
+  const api={buildSuggestedTimelinePlan,buildWholeMixTimelinePlan,applySuggestedTransition,previewSuggestedMix,stopPreview};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixPreviewUI=api;
   if(typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
