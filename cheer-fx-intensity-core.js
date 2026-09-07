@@ -1,7 +1,7 @@
 (()=>{
   'use strict';
 
-  const SECTION_INTENSITY=Object.freeze({intro:.62,stunt:.88,tumbling:.82,pyramid:.96,dance:.76,ending:1,other:.68});
+  const SECTION_INTENSITY=Object.freeze({intro:.62,stunt:.88,basket:.94,tumbling:.82,pyramid:.96,dance:.76,ending:1,other:.68});
   const KIND_WEIGHT=Object.freeze({impact:1,riser:.76,downlifter:.58,whoosh:.54});
 
   function finite(value,fallback=0){const n=Number(value);return Number.isFinite(n)?n:fallback;}
