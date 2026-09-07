@@ -91,5 +91,38 @@
     const previewProject=projectForTimelinePlan(project,plan);
     return renderProject(previewProject,onProgress);
   }
-  window.CheerOfflineRenderer={renderProject,renderTimelinePlan,projectForTimelinePlan,SAMPLE_RATE,CHANNELS,projectLength,trackKey};
+  async function playRenderedBuffer(buffer,{context=null,onEnded=null}={}){
+    if(!buffer||!(Number(buffer.duration)>0||Number(buffer.length)>0&&Number(buffer.sampleRate)>0))throw new Error('Kuunneltava Smart Mix -renderi puuttuu tai on tyhjä.');
+    const C=window.AudioContext||window.webkitAudioContext;
+    if(!context&&!C)throw new Error('Web Audio API ei ole käytettävissä Smart Mix -kuunteluun.');
+    const ctx=context||new C();
+    const ownsContext=!context;
+    if(ctx.state==='suspended'&&ctx.resume)await ctx.resume();
+    const source=ctx.createBufferSource();
+    source.buffer=buffer;
+    source.connect(ctx.destination);
+    const startedAt=Number(ctx.currentTime)||0;
+    let stopped=false;
+    let ended=false;
+    const duration=Number(buffer.duration)>0?Number(buffer.duration):Number(buffer.length)/Number(buffer.sampleRate);
+    const closeOwned=()=>{if(ownsContext&&ctx.close)ctx.close().catch(()=>{});};
+    const controller={
+      buffer,
+      context:ctx,
+      source,
+      duration,
+      nonDestructive:true,
+      stop(){if(stopped||ended)return;stopped=true;try{source.stop()}catch(_){}closeOwned();},
+      currentTime(){return Math.max(0,Math.min(duration,(Number(ctx.currentTime)||0)-startedAt));},
+      isPlaying(){return !stopped&&!ended;}
+    };
+    source.onended=()=>{ended=true;closeOwned();if(typeof onEnded==='function')onEnded(controller);};
+    source.start(0);
+    return controller;
+  }
+  async function previewTimelinePlan(project,plan,onProgress=()=>{},options={}){
+    const rendered=await renderTimelinePlan(project,plan,onProgress);
+    return playRenderedBuffer(rendered,options);
+  }
+  window.CheerOfflineRenderer={renderProject,renderTimelinePlan,previewTimelinePlan,playRenderedBuffer,projectForTimelinePlan,SAMPLE_RATE,CHANNELS,projectLength,trackKey};
 })();
