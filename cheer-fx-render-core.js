@@ -13,7 +13,7 @@
 
   function impactRenderSpec(anchor={}){
     const sectionType=String(anchor.sectionType||'').toLowerCase();
-    if(anchor.kind!=='impact'||!ALLOWED_SECTIONS.has(sectionType))return null;
+    if(anchor.executable===false||anchor.kind!=='impact'||!ALLOWED_SECTIONS.has(sectionType))return null;
     const at=finite(anchor.at,NaN);
     if(!Number.isFinite(at)||at<0)return null;
     const confidence=clamp(finite(anchor.confidence,.72),0,1);
@@ -42,7 +42,7 @@
 
   function riserRenderSpec(anchor={}){
     const sectionType=String(anchor.sectionType||'').toLowerCase();
-    if(anchor.kind!=='riser'||!ALLOWED_SECTIONS.has(sectionType))return null;
+    if(anchor.executable===false||anchor.kind!=='riser'||!ALLOWED_SECTIONS.has(sectionType))return null;
     const at=finite(anchor.at,NaN),duration=finite(anchor.duration,0),endAt=finite(anchor.endAt,at+duration);
     if(!Number.isFinite(at)||at<0||!(duration>0)||!Number.isFinite(endAt)||endAt<=at)return null;
     const safeDuration=Math.min(duration,endAt-at);
