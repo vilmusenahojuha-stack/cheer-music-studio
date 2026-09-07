@@ -16,6 +16,7 @@
   function finite(value,fallback=0){const n=Number(value);return Number.isFinite(n)?n:fallback;}
   function clamp01(value){return Math.max(0,Math.min(1,finite(value)));}
   function average(values=[]){return values.length?values.reduce((a,b)=>a+b,0)/values.length:0;}
+  function sourceKey(row={}){return row.trackId?`id:${row.trackId}`:row.sourceName?`name:${row.sourceName}`:'unknown';}
 
   function normalizeProfile(profile=[]){
     return profile
@@ -23,12 +24,14 @@
         eight:Math.max(1,Math.round(finite(row?.eight,index+1))),
         start:finite(row?.start),
         end:finite(row?.end),
+        sourceName:row?.sourceName==null?null:String(row.sourceName),
+        trackId:row?.trackId==null?null:String(row.trackId),
         energyScore:clamp01(row?.energyScore),
         activity:clamp01(row?.activity),
         crestDb:finite(row?.crestDb),
         energyDelta:finite(row?.energyDelta)
       }))
-      .sort((a,b)=>a.eight-b.eight);
+      .sort((a,b)=>sourceKey(a).localeCompare(sourceKey(b))||a.eight-b.eight||a.start-b.start);
   }
 
   function targetTrend(section){
@@ -85,22 +88,39 @@
     const out=[];
     for(let i=0;i+duration<=rows.length;i++){
       const slice=rows.slice(i,i+duration);
-      let contiguous=true;
-      for(let j=1;j<slice.length;j++)if(slice[j].eight!==slice[j-1].eight+1){contiguous=false;break;}
+      const key=sourceKey(slice[0]);
+      let contiguous=key!=='unknown';
+      for(let j=1;j<slice.length;j++){
+        if(sourceKey(slice[j])!==key||slice[j].eight!==slice[j-1].eight+1){contiguous=false;break;}
+      }
       if(!contiguous)continue;
-      out.push({startEight:slice[0].eight,endEight:slice[slice.length-1].eight,start:slice[0].start,end:slice[slice.length-1].end,rows:slice});
+      out.push({
+        sourceName:slice[0].sourceName,
+        trackId:slice[0].trackId,
+        startEight:slice[0].eight,
+        endEight:slice[slice.length-1].eight,
+        start:slice[0].start,
+        end:slice[slice.length-1].end,
+        rows:slice
+      });
     }
     return out;
   }
 
+  function rangeKey(range={}){return range.trackId?`id:${range.trackId}`:range.sourceName?`name:${range.sourceName}`:null;}
+
   function rankSegments(section,profile=[],{limit=5,minScore=0,excludeRanges=[]}={}){
     const duration=Math.max(1,Math.floor(finite(section?.durationEights,finite(section?.endEight)-finite(section?.startEight)+1)));
-    const overlapsExcluded=(candidate)=>excludeRanges.some(range=>candidate.startEight<=finite(range?.endEight)&&candidate.endEight>=finite(range?.startEight));
+    const overlapsExcluded=(candidate)=>excludeRanges.some(range=>{
+      const rk=rangeKey(range),ck=rangeKey(candidate);
+      if(rk&&ck&&rk!==ck)return false;
+      return candidate.startEight<=finite(range?.endEight)&&candidate.endEight>=finite(range?.startEight);
+    });
     return candidateSegments(profile,duration)
       .filter(candidate=>!overlapsExcluded(candidate))
       .map(candidate=>({...candidate,...scoreSegment(section,candidate.rows)}))
       .filter(candidate=>candidate.score>=clamp01(minScore))
-      .sort((a,b)=>b.score-a.score||a.startEight-b.startEight)
+      .sort((a,b)=>b.score-a.score||String(a.sourceName||'').localeCompare(String(b.sourceName||''))||a.startEight-b.startEight)
       .slice(0,Math.max(1,Math.floor(finite(limit,5))))
       .map(({rows,...candidate})=>candidate);
   }
@@ -111,7 +131,7 @@
     for(const section of sections){
       const candidates=rankSegments(section,profile,{limit:limitPerSection,minScore,excludeRanges:avoidReuse?used:[]});
       const best=candidates[0]||null;
-      if(best&&avoidReuse)used.push({startEight:best.startEight,endEight:best.endEight});
+      if(best&&avoidReuse)used.push({sourceName:best.sourceName,trackId:best.trackId,startEight:best.startEight,endEight:best.endEight});
       matches.push({sectionId:section?.id||null,sectionType:section?.type||'other',durationEights:section?.durationEights||null,best,candidates});
     }
     const matched=matches.filter(m=>m.best);
@@ -126,7 +146,7 @@
     };
   }
 
-  const api={ENERGY_TARGETS,SECTION_WEIGHTS,normalizeProfile,segmentFeatures,scoreSegment,candidateSegments,rankSegments,matchPlanSections};
+  const api={ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,segmentFeatures,scoreSegment,candidateSegments,rankSegments,matchPlanSections};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixSegmentMatcherCore=api;
 })();
