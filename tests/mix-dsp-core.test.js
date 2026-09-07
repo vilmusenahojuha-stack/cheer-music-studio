@@ -54,9 +54,37 @@ assert.ok(impactPoints.some(p=>Math.abs(p[0]-(impactClip.duration-impactShape.fa
 assert.equal(impactClip.start,0,'DSP must not move the clip start');
 assert.ok(Math.abs(impactClip.duration-(480/152*2))<1e-12,'DSP must not change timeline duration');
 
-const flowClip={...impactClip,smartMix:{...impactClip.smartMix,transitionOut:{type:'flow-blend'}},fadeOut:.020};
-assert.equal(DSP.impactShape(flowClip),null,'non-impact transition types retain their existing envelope');
-assert.ok(Math.abs(DSP.clipEnvelopeAt(flowClip,flowClip.duration-.010)-.5)<1e-9,'flow microfade behavior remains unchanged');
+// Smart Mix flow-blend stays count-safe but softens the outgoing phrase over half a count.
+// It deliberately avoids changing clip timing or introducing overlap until the timeline engine
+// can support overlap without moving cheer count boundaries.
+const flowClip={
+  ...impactClip,
+  sourceName:'Flow source',
+  fadeOut:.020,
+  smartMix:{sourceStartEight:1,sourceEndEight:2,transitionOut:{type:'flow-blend',countLength:0}}
+};
+const flowShape=DSP.flowShape(flowClip);
+assert.ok(flowShape,'flow-blend should create a DSP continuity shape');
+assert.ok(Math.abs(flowShape.prepSeconds-countSeconds*.5)<1e-9,'flow preparation must span exactly half a count');
+assert.equal(flowShape.fadeSeconds,.020);
+assert.equal(flowShape.floor,.72);
+assert.equal(DSP.clipEnvelopeAt(flowClip,flowClip.duration-flowShape.prepSeconds),1);
+const flowMidway=flowClip.duration-(flowShape.prepSeconds+flowShape.fadeSeconds)/2;
+const flowMidwayGain=DSP.clipEnvelopeAt(flowClip,flowMidway);
+assert.ok(flowMidwayGain>.72&&flowMidwayGain<1,'flow region should soften gradually before the boundary');
+assert.ok(Math.abs(DSP.clipEnvelopeAt(flowClip,flowClip.duration-flowShape.fadeSeconds)-.72)<1e-9,'flow microfade starts from continuity floor');
+assert.equal(DSP.clipEnvelopeAt(flowClip,flowClip.duration),0);
+const flowPoints=DSP.clipAutomationPoints(flowClip,0,flowClip.duration);
+assert.ok(flowPoints.some(p=>Math.abs(p[0]-(flowClip.duration-flowShape.prepSeconds))<1e-9),'automation includes half-count flow start');
+assert.ok(flowPoints.some(p=>Math.abs(p[0]-(flowClip.duration-flowShape.fadeSeconds))<1e-9),'automation includes flow microfade start');
+assert.equal(flowClip.start,0,'flow DSP must not move the clip start');
+assert.ok(Math.abs(flowClip.duration-(480/152*2))<1e-12,'flow DSP must not change timeline duration');
+assert.equal(flowClip.smartMix.sourceStartEight,1,'flow DSP must not change source count position');
+
+const cleanClip={...impactClip,smartMix:{...impactClip.smartMix,transitionOut:{type:'clean-cut'}},fadeOut:.014};
+assert.equal(DSP.impactShape(cleanClip),null);
+assert.equal(DSP.flowShape(cleanClip),null,'unrelated transition types retain the original microfade envelope');
+assert.ok(Math.abs(DSP.clipEnvelopeAt(cleanClip,cleanClip.duration-.007)-.5)<1e-9,'clean-cut microfade behavior remains unchanged');
 
 const events=[];const param={cancelScheduledValues:t=>events.push(['cancel',t]),setValueAtTime:(v,t)=>events.push(['set',v,t]),linearRampToValueAtTime:(v,t)=>events.push(['ramp',v,t])};
 DSP.scheduleParam(param,[[2,.2],[3,.8],[4,0]],10,2);
