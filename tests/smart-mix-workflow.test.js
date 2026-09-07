@@ -16,11 +16,13 @@ assert.equal(workflow.validateTrackReadiness(bad).ok,false);
 assert.equal(workflow.validateTrackReadiness(bad).issues[0].reason,'count-one-missing');
 
 let passedSections=null;
+let fxAttachCalls=0;
 const fakeCores={
   plan:{buildCheerPlan:({bpm,sections})=>({bpm,sections:sections.map(s=>({...s,durationEights:s.endEight-s.startEight+1}))})},
   matcher:{matchPlanSections:(secs,profiles)=>{passedSections=secs;return{coverage:1,averageScore:.9,matches:secs.map((s,i)=>({sectionId:s.id,sectionType:s.type,candidates:[profiles[i]]}))};}},
   sequence:{optimizeMatchedPlan:matchPlan=>({coverage:1,sequence:matchPlan.matches.map(m=>({sectionId:m.sectionId,sectionType:m.sectionType,candidate:m.candidates[0],transition:{combinedScore:.9}}))})},
-  package:{createProposalPackage:({optimized,bpm})=>({status:'preview-ready',kind:'smart-mix-2-proposal-package',bpm,summary:{sections:optimized.sequence.length,timelineClips:optimized.sequence.length},audioTimelinePlan:{status:'preview-ready',clips:optimized.sequence.map((s,i)=>({sourceName:s.candidate.sourceName,start:i*6.4,duration:6.4,sourceOffset:s.candidate.start}))}})}
+  package:{createProposalPackage:({optimized,bpm})=>({status:'preview-ready',kind:'smart-mix-2-proposal-package',bpm,summary:{sections:optimized.sequence.length,timelineClips:optimized.sequence.length},audioTimelinePlan:{status:'preview-ready',clips:optimized.sequence.map((s,i)=>({sourceName:s.candidate.sourceName,start:i*6.4,duration:6.4,sourceOffset:s.candidate.start}))}})},
+  fxIntegration:{attachStructuralCheerFx:proposal=>{fxAttachCalls++;return{...proposal,cheerFx:{status:'preview-planned',anchors:[{kind:'impact',at:6.4,sectionType:'stunt'}]},audioTimelinePlan:{...proposal.audioTimelinePlan,cheerFxAnchors:[{kind:'impact',at:6.4,sectionType:'stunt'}]},summary:{...proposal.summary,cheerFxAnchors:1}};}}
 };
 const profiles=[
  {sourceName:'A.wav',trackId:'A',startEight:1,endEight:2,start:0,end:6.4,score:.9},
@@ -33,11 +35,16 @@ assert.equal(proposal.summary.sections,3);
 assert.equal(proposal.audioTimelinePlan.clips[1].sourceName,'B.wav');
 assert.equal(passedSections[1].type,'stunt');
 assert.equal(proposal.sourceProfiles,3);
+assert.equal(fxAttachCalls,1);
+assert.equal(proposal.cheerFx.status,'preview-planned');
+assert.equal(proposal.summary.cheerFxAnchors,1);
+assert.equal(proposal.audioTimelinePlan.cheerFxAnchors[0].at,6.4);
 
 const incompleteCores={...fakeCores,matcher:{matchPlanSections:()=>({coverage:2/3,matches:[]})}};
 const incomplete=workflow.createProposalFromProfiles(project,[profiles],{cores:incompleteCores});
 assert.equal(incomplete.status,'review-required');
 assert.equal(incomplete.reason,'not-all-sections-matched');
 assert.equal(incomplete.executable,false);
+assert.equal(fxAttachCalls,1,'FX integration must not run for an incomplete sequence');
 
 console.log('smart-mix-workflow tests passed');
