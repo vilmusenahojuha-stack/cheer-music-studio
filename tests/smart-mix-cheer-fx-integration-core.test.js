@@ -26,13 +26,16 @@ assert.deepEqual(anchors.map(a=>[a.kind,a.at,a.sectionId,a.sectionType]),[
 ]);
 assert.equal(anchors[0].sourceTransitionType,'impact-cut');
 assert.equal(anchors[0].confidence,.91);
+assert.equal(anchors[0].renderMode,'synth-impact-v1');
 assert.equal(anchors[0].nonDestructive,true);
-assert.equal(anchors[0].executable,false);
+assert.equal(anchors[0].executable,true);
 assert.equal(anchors[0].preservesTimelineTiming,true);
 
 const attached=core.attachStructuralCheerFx(proposal);
-assert.equal(attached.cheerFx.status,'preview-planned');
-assert.equal(attached.cheerFx.mode,'structural-impact-anchors');
+assert.equal(attached.cheerFx.version,2);
+assert.equal(attached.cheerFx.status,'preview-executable');
+assert.equal(attached.cheerFx.mode,'structural-impact-synth-v1');
+assert.equal(attached.cheerFx.executable,true);
 assert.equal(attached.cheerFx.summary.impacts,2);
 assert.equal(attached.summary.cheerFxAnchors,2);
 assert.equal(attached.audioTimelinePlan.cheerFxAnchors.length,2);
@@ -42,6 +45,7 @@ assert.equal(JSON.stringify(proposal),before,'integration must not mutate the Sm
 
 const flowOnly=core.attachStructuralCheerFx({kind:'smart-mix-2-proposal-package',summary:{},audioTimelinePlan:{status:'preview-ready',clips:[{start:0,smartMix:{sectionId:'dance',sectionType:'dance'}}],transitions:[]}});
 assert.equal(flowOnly.cheerFx.status,'no-structural-impact-anchors');
+assert.equal(flowOnly.cheerFx.executable,false);
 assert.equal(flowOnly.audioTimelinePlan.cheerFxAnchors.length,0);
 
 const blocked=core.buildStructuralFxAnchors({kind:'smart-mix-2-proposal-package',audioTimelinePlan:{status:'blocked',clips:[],transitions:[]}});
