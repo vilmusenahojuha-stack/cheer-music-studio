@@ -24,8 +24,9 @@
         sectionType,
         sourceTransitionType:'impact-cut',
         confidence:(transition.qualityScore==null)?.72:Math.max(0,Math.min(1,finite(transition.qualityScore))),
+        renderMode:'synth-impact-v1',
         nonDestructive:true,
-        executable:false,
+        executable:true,
         preservesTimelineTiming:true
       });
     }
@@ -40,11 +41,11 @@
       ...proposalPackage,
       audioTimelinePlan,
       cheerFx:{
-        version:1,
-        status:anchors.length?'preview-planned':'no-structural-impact-anchors',
-        mode:'structural-impact-anchors',
+        version:2,
+        status:anchors.length?'preview-executable':'no-structural-impact-anchors',
+        mode:'structural-impact-synth-v1',
         nonDestructive:true,
-        executable:false,
+        executable:anchors.length>0,
         safePreviewOnly:true,
         anchors,
         summary:{anchors:anchors.length,impacts:anchors.length}
