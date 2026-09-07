@@ -29,11 +29,35 @@ vm.createContext(sandbox);vm.runInContext(fs.readFileSync(require.resolve('../of
   assert.equal(ctx.gains.length,8,'each clip must have clip-envelope and ducking gain stages');
   const firstClipGain=ctx.gains[0].gain.events,firstDuckGain=ctx.gains[1].gain.events;assert.ok(firstClipGain.some(e=>e[0]==='ramp'),'preview/export shared fade DSP must schedule ramps');assert.ok(firstDuckGain.some(e=>e[0]==='ramp'),'music ducking must schedule automation around voice');
 
+  const originalTimeline=JSON.stringify(project.audioTimeline);
+  const smartMixPlan={status:'preview-ready',clips:[
+    {id:'sm-a',type:'music',sourceName:'a',start:0,duration:8*spb,sourceOffset:4,volume:1,fadeIn:0,fadeOut:0},
+    {id:'sm-b',type:'music',sourceName:'b',start:8*spb,duration:8*spb,sourceOffset:10,volume:1,fadeIn:0,fadeOut:0}
+  ]};
+  const previewProject=windowObj.CheerOfflineRenderer.projectForTimelinePlan(project,smartMixPlan);
+  assert.notEqual(previewProject,project,'preview must use a separate project object');
+  assert.notEqual(previewProject.audioTimeline,project.audioTimeline,'preview timeline must be isolated from the saved project');
+  assert.equal(JSON.stringify(project.audioTimeline),originalTimeline,'building preview must not mutate project timeline');
+  assert.equal(previewProject.smartMixPreview.nonDestructive,true);
+  assert.equal(previewProject.audioTimeline.clips.length,2);
+  assert.equal(previewProject.audioTimeline.clips[0].sourceOffset,4);
+  assert.ok(Math.abs(previewProject.duration-16*spb)<1e-9,'preview duration must follow Smart Mix plan instead of declared project duration');
+  const smartRendered=await windowObj.CheerOfflineRenderer.renderTimelinePlan(project,smartMixPlan);
+  const smartCtx=FakeOfflineContext.last;
+  assert.equal(smartRendered.sampleRate,48000);
+  assert.equal(smartCtx.starts.length,2,'Smart Mix preview must schedule only proposal clips');
+  assert.equal(smartCtx.starts[0].offset,4,'Smart Mix source offset must reach shared renderer');
+  assert.equal(smartCtx.starts[1].offset,10,'second Smart Mix source offset must reach shared renderer');
+  assert.ok(Math.abs((smartCtx.starts[0].when+smartCtx.starts[0].duration)-smartCtx.starts[1].when)<1e-9,'Smart Mix preview handoff must remain sample-timeline aligned');
+  assert.equal(JSON.stringify(project.audioTimeline),originalTimeline,'rendering Smart Mix preview must leave saved timeline untouched');
+  await assert.rejects(()=>windowObj.CheerOfflineRenderer.renderTimelinePlan(project,{...smartMixPlan,status:'review-required'}),/preview-ready/);
+  await assert.rejects(()=>windowObj.CheerOfflineRenderer.renderTimelinePlan(project,{status:'preview-ready',clips:[{id:'missing',type:'music',sourceName:'missing',start:0,duration:1,sourceOffset:0}]}),/lähdeaudiota ei löytynyt/);
+
   const tail={...project,duration:5,audioTimeline:{clips:[{id:'tail',type:'fx',sourceName:'fx',start:7,duration:2,sourceOffset:0,volume:1,fadeIn:0,fadeOut:0}]}};
   assert.equal(windowObj.CheerOfflineRenderer.projectLength(tail),9,'renderer must not truncate clips extending past declared project duration');
   await windowObj.CheerOfflineRenderer.renderProject(tail);assert.equal(FakeOfflineContext.last.length,9*48000,'offline buffer must include the complete tail clip');
 
   const bad={...project,audioTimeline:{clips:[{id:'bad',type:'music',sourceName:'a',start:-1,duration:1,sourceOffset:0}]}};
   await assert.rejects(()=>windowObj.CheerOfflineRenderer.renderProject(bad),/virheellinen ajoitus/,'invalid clip timing must fail before master render');
-  console.log('offline-render integration: 48 kHz stereo, shared DSP, VO/FX timing, tail preservation and validation passed');
+  console.log('offline-render integration: shared DSP + non-destructive Smart Mix preview render passed');
 })().catch(err=>{console.error(err);process.exitCode=1});
