@@ -11,7 +11,7 @@
   });
 
   const SECTION_PHASE=Object.freeze({
-    intro:'build',stunt:'peak',tumbling:'drive',pyramid:'peak',dance:'drive',ending:'resolve',other:'drive'
+    intro:'build',stunt:'peak',basket:'peak',tumbling:'drive',pyramid:'peak',dance:'drive',ending:'resolve',other:'drive'
   });
 
   function finite(value,fallback=0){const n=Number(value);return Number.isFinite(n)?n:fallback;}
