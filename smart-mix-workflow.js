@@ -33,7 +33,8 @@
       plan:overrides.plan||w.CheerPlanCore,
       matcher:overrides.matcher||w.SmartMixSegmentMatcherCore,
       sequence:overrides.sequence||w.SmartMixSequenceCore,
-      package:overrides.package||w.SmartMixProposalPackageCore
+      package:overrides.package||w.SmartMixProposalPackageCore,
+      fxIntegration:overrides.fxIntegration||w.SmartMixCheerFxIntegrationCore
     };
   }
 
@@ -74,7 +75,8 @@
       return {status:'review-required',reason:optimized?.reason||'sequence-incomplete',matchPlan,optimized,nonDestructive:true,executable:false,safePreviewOnly:true};
     }
     const proposal=cores.package.createProposalPackage({optimized,matchPlan,bpm},{reoptimize:false});
-    return {...proposal,cheerPlan:plan,matchPlan,sourceProfiles:combined.length,generatedAt:Date.now()};
+    const withFx=cores.fxIntegration?.attachStructuralCheerFx?cores.fxIntegration.attachStructuralCheerFx(proposal):proposal;
+    return {...withFx,cheerPlan:plan,matchPlan,sourceProfiles:combined.length,generatedAt:Date.now()};
   }
 
   async function decodeMono(track){
