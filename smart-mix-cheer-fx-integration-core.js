@@ -3,6 +3,12 @@
 
   const HIGH_IMPACT=new Set(['stunt','basket','pyramid','ending']);
   const SECTION_PRIORITY=Object.freeze({stunt:.90,basket:.98,pyramid:.96,ending:1});
+  const SECTION_PATTERNS=Object.freeze({
+    stunt:Object.freeze({id:'stunt-build-hit',anticipationCounts:1,riserScale:1,impactScale:1}),
+    basket:Object.freeze({id:'basket-snap-hit',anticipationCounts:.5,riserScale:.88,impactScale:1.08}),
+    pyramid:Object.freeze({id:'pyramid-rise-hit',anticipationCounts:1.5,riserScale:1.08,impactScale:1.03}),
+    ending:Object.freeze({id:'ending-final-hit',anticipationCounts:1,riserScale:.92,impactScale:1.12})
+  });
   const ARC_SCALE=Object.freeze({
     build:Object.freeze({riser:1.05,impact:.90}),
     drive:Object.freeze({riser:1,impact:1}),
@@ -43,6 +49,10 @@
     const startAt=Math.max(0,finite(proposalPackage?.audioTimelinePlan?.startAt,0));
     const relative=Math.max(0,finite(seconds)-startAt);
     return Math.max(1,Math.floor((relative+1e-9)/eightSeconds)+1);
+  }
+
+  function sectionPatternFor(sectionType){
+    return SECTION_PATTERNS[String(sectionType||'').toLowerCase()]||Object.freeze({id:'structural-hit',anticipationCounts:1,riserScale:1,impactScale:1});
   }
 
   function structuralPriority(sectionType,kind){
@@ -87,8 +97,10 @@
       const context=phraseCore.resolveEnergyWindow(eight,anchor.sectionType,energyWindows);
       const slot=phraseCore.phraseSlot(eight,phraseStartEight,phraseLength);
       const profile=phraseCore.PHASE_PROFILES[context.phase]||phraseCore.PHASE_PROFILES.drive;
+      const pattern=sectionPatternFor(anchor.sectionType);
       const baseScore=clamp(finite(anchor.intensityScore,finite(anchor.priority,.5)),0,1);
       let scale=anchor.kind==='impact'?finite(profile.impactScale,1):finite(profile.transitionScale,1);
+      scale*=anchor.kind==='impact'?finite(pattern.impactScale,1):finite(pattern.riserScale,1);
       if(context.energy!=null)scale*=.8+clamp(finite(context.energy),0,1)*.4;
       if(anchor.kind==='impact'&&slot===phraseLength&&(context.phase==='peak'||context.phase==='resolve'))scale*=1.08;
       if(anchor.kind==='impact'&&slot===1&&context.phase==='peak'&&anchor.sectionType!=='ending')scale*=.92;
@@ -107,6 +119,8 @@
         energyPhase:context.phase,
         energyValue:context.energy,
         energySource:context.source,
+        sectionFxPattern:pattern.id,
+        sectionPatternScale:anchor.kind==='impact'?pattern.impactScale:pattern.riserScale,
         sectionArcStage:arcStage,
         sectionArcScale:arcScale,
         phraseHeroEligible:anchor.kind==='impact'?heroEligible:false,
@@ -152,21 +166,24 @@
       const target=clips.find(c=>(c?.smartMix?.sectionId||null)===(transition?.toSectionId||null));
       const sectionType=String(target?.smartMix?.sectionType||'other').toLowerCase();
       if(!target||!HIGH_IMPACT.has(sectionType))continue;
+      const pattern=sectionPatternFor(sectionType);
       const impactAt=Math.max(0,finite(target.start));
       const confidence=(transition.qualityScore==null)?.72:clamp(finite(transition.qualityScore),0,1);
       const baseId=`smartmix-fx-${transition.toSectionId||anchors.length+1}`;
+      const anticipationSeconds=countSeconds*Math.max(0,finite(pattern.anticipationCounts,1));
 
-      if(countSeconds>0&&impactAt>=countSeconds){
+      if(anticipationSeconds>0&&impactAt>=anticipationSeconds){
         anchors.push({
           id:`${baseId}-riser`,
           kind:'riser',
           role:'section-entry-anticipation',
-          at:impactAt-countSeconds,
+          at:impactAt-anticipationSeconds,
           endAt:impactAt,
-          duration:countSeconds,
-          countLength:1,
+          duration:anticipationSeconds,
+          countLength:pattern.anticipationCounts,
           sectionId:transition.toSectionId||null,
           sectionType,
+          sectionFxPattern:pattern.id,
           sourceTransitionType:'impact-cut',
           confidence,
           renderMode:'synth-riser-v1',
@@ -183,6 +200,7 @@
         at:impactAt,
         sectionId:transition.toSectionId||null,
         sectionType,
+        sectionFxPattern:pattern.id,
         sourceTransitionType:'impact-cut',
         confidence,
         renderMode:'synth-impact-v1',
@@ -210,26 +228,28 @@
     const arcBuild=anchors.filter(a=>a.sectionArcStage==='build').length;
     const arcPeak=anchors.filter(a=>a.sectionArcStage==='peak').length;
     const arcRelease=anchors.filter(a=>a.sectionArcStage==='release').length;
+    const patterns=[...new Set(anchors.map(a=>a.sectionFxPattern).filter(Boolean))];
     const audioTimelinePlan={...(proposalPackage.audioTimelinePlan||{}),cheerFxAnchors:anchors};
     return {
       ...proposalPackage,
       audioTimelinePlan,
       cheerFx:{
-        version:7,
+        version:8,
         status:executableAnchors?'preview-executable':'no-structural-impact-anchors',
-        mode:'structural-riser-impact-section-arc-density-synth-v1',
+        mode:'section-pattern-riser-impact-energy-arc-density-synth-v1',
         nonDestructive:true,
         executable:executableAnchors>0,
         safePreviewOnly:true,
         densityPolicy:{...DEFAULT_DENSITY_POLICY,...(options.densityPolicy||{})},
+        sectionPatterns:patterns,
         anchors,
-        summary:{anchors:anchors.length,executableAnchors,densityDropped,densityDroppedImpacts,impacts,risers,hero,strong,phraseHeroEligible,arcBuild,arcPeak,arcRelease}
+        summary:{anchors:anchors.length,executableAnchors,densityDropped,densityDroppedImpacts,impacts,risers,hero,strong,phraseHeroEligible,arcBuild,arcPeak,arcRelease,sectionPatterns:patterns.length}
       },
-      summary:{...(proposalPackage.summary||{}),cheerFxAnchors:anchors.length,cheerFxExecutableAnchors:executableAnchors,cheerFxDensityDropped:densityDropped,cheerFxDensityDroppedImpacts:densityDroppedImpacts,cheerFxImpacts:impacts,cheerFxRisers:risers,cheerFxHero:hero,cheerFxStrong:strong,cheerFxPhraseHeroEligible:phraseHeroEligible,cheerFxArcBuild:arcBuild,cheerFxArcPeak:arcPeak,cheerFxArcRelease:arcRelease}
+      summary:{...(proposalPackage.summary||{}),cheerFxAnchors:anchors.length,cheerFxExecutableAnchors:executableAnchors,cheerFxDensityDropped:densityDropped,cheerFxDensityDroppedImpacts:densityDroppedImpacts,cheerFxImpacts:impacts,cheerFxRisers:risers,cheerFxHero:hero,cheerFxStrong:strong,cheerFxPhraseHeroEligible:phraseHeroEligible,cheerFxArcBuild:arcBuild,cheerFxArcPeak:arcPeak,cheerFxArcRelease:arcRelease,cheerFxSectionPatterns:patterns.length}
     };
   }
 
-  const api={HIGH_IMPACT,SECTION_PRIORITY,ARC_SCALE,DEFAULT_DENSITY_POLICY,countSecondsFor,eightSecondsFor,routineEightAt,structuralPriority,sectionArcFor,sectionArcScale,applyStructuralIntensity,applyPhraseEnergyShaping,applyDensityPolicy,buildStructuralFxAnchors,attachStructuralCheerFx};
+  const api={HIGH_IMPACT,SECTION_PRIORITY,SECTION_PATTERNS,ARC_SCALE,DEFAULT_DENSITY_POLICY,countSecondsFor,eightSecondsFor,routineEightAt,sectionPatternFor,structuralPriority,sectionArcFor,sectionArcScale,applyStructuralIntensity,applyPhraseEnergyShaping,applyDensityPolicy,buildStructuralFxAnchors,attachStructuralCheerFx};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixCheerFxIntegrationCore=api;
 })();
