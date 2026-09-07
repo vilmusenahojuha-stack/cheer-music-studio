@@ -23,7 +23,7 @@
         sectionId:transition.toSectionId||null,
         sectionType,
         sourceTransitionType:'impact-cut',
-        confidence:transition.qualityScore==null?.72:Math.max(0,Math.min(1,finite(transition.qualityScore))),
+        confidence:(transition.qualityScore==null)?.72:Math.max(0,Math.min(1,finite(transition.qualityScore))),
         nonDestructive:true,
         executable:false,
         preservesTimelineTiming:true
