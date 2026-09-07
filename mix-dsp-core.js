@@ -6,12 +6,32 @@
     const a=trackAnalysis?.[c.sourceName]||{},bpm=num(a.bpm||a.autoBpm),target=Math.max(1,num(targetBpm,147));
     return bpm>0?clamp(target/bpm,.5,2):1;
   }
+  function impactShape(clip){
+    const c=clip||{},transition=c?.smartMix?.transitionOut||{};
+    if(transition.type!=='impact-cut')return null;
+    const first=num(c?.smartMix?.sourceStartEight,NaN),last=num(c?.smartMix?.sourceEndEight,NaN),dur=Math.max(0,num(c.duration));
+    const eights=Number.isFinite(first)&&Number.isFinite(last)?Math.max(1,last-first+1):0;
+    if(!eights||!dur)return null;
+    const countSeconds=dur/(eights*8),countLength=num(transition.countLength)>0?num(transition.countLength):.25,fade=clamp(num(c.fadeOut),0,dur),prep=clamp(countSeconds*countLength,fade,dur);
+    if(!(prep>fade))return null;
+    return{prepSeconds:prep,fadeSeconds:fade,countLength,floor:clamp(num(transition.anticipationFloor,.22),.08,.65)};
+  }
   function clipEnvelopeAt(clip,t){
     const c=clip||{},start=num(c.start),dur=Math.max(0,num(c.duration)),local=num(t)-start;
     if(local<0||local>dur)return 0;
     const base=clamp(num(c.volume,1),0,1),fi=clamp(num(c.fadeIn),0,dur),fo=clamp(num(c.fadeOut),0,dur);let env=1;
     if(fi>0&&local<fi)env=Math.min(env,local/fi);
-    const remain=Math.max(0,dur-local);if(fo>0&&remain<fo)env=Math.min(env,remain/fo);
+    const remain=Math.max(0,dur-local),impact=impactShape(c);
+    if(impact&&remain<impact.prepSeconds){
+      if(remain<=impact.fadeSeconds){
+        const fadeProgress=impact.fadeSeconds>0?remain/impact.fadeSeconds:0;
+        env=Math.min(env,impact.floor*clamp(fadeProgress,0,1));
+      }else{
+        const span=Math.max(.000001,impact.prepSeconds-impact.fadeSeconds);
+        const progress=clamp((impact.prepSeconds-remain)/span,0,1);
+        env=Math.min(env,1-(1-impact.floor)*progress);
+      }
+    }else if(fo>0&&remain<fo)env=Math.min(env,remain/fo);
     return clamp(base*env,0,1);
   }
   function voiceWindows(clips=[],settings={}){
@@ -31,8 +51,8 @@
   }
   function uniqueTimes(values,start,end){return[...new Set(values.filter(v=>Number.isFinite(v)&&v>=start&&v<=end).map(v=>Math.round(v*1e9)/1e9))].sort((a,b)=>a-b)}
   function clipAutomationPoints(clip,start,end){
-    const c=clip||{},cs=num(c.start),dur=Math.max(0,num(c.duration)),ce=cs+dur,fi=clamp(num(c.fadeIn),0,dur),fo=clamp(num(c.fadeOut),0,dur),s=Math.max(start,cs),e=Math.min(end,ce);
-    if(!(e>s))return[];const times=uniqueTimes([s,e,cs,cs+fi,ce-fo,ce],s,e);return times.map(t=>[t,clipEnvelopeAt(c,t)]);
+    const c=clip||{},cs=num(c.start),dur=Math.max(0,num(c.duration)),ce=cs+dur,fi=clamp(num(c.fadeIn),0,dur),fo=clamp(num(c.fadeOut),0,dur),s=Math.max(start,cs),e=Math.min(end,ce),impact=impactShape(c);
+    if(!(e>s))return[];const times=uniqueTimes([s,e,cs,cs+fi,ce-fo,impact?ce-impact.prepSeconds:NaN,ce],s,e);return times.map(t=>[t,clipEnvelopeAt(c,t)]);
   }
   function duckAutomationPoints(clip,clips,start,end,settings={}){
     if(clip?.type!=='music'||settings?.autoDuck===false)return[[start,1],[end,1]];
@@ -45,5 +65,5 @@
     param.cancelScheduledValues?.(Math.max(0,at(sorted[0][0])));
     sorted.forEach((p,i)=>{const ct=Math.max(0,at(p[0])),v=Math.max(floor,num(p[1]));if(i===0)param.setValueAtTime(v,ct);else param.linearRampToValueAtTime(v,ct)});
   }
-  return{clamp,num,rateForClip,clipEnvelopeAt,voiceWindows,duckFactorAt,clipAutomationPoints,duckAutomationPoints,scheduleParam};
+  return{clamp,num,rateForClip,impactShape,clipEnvelopeAt,voiceWindows,duckFactorAt,clipAutomationPoints,duckAutomationPoints,scheduleParam};
 });

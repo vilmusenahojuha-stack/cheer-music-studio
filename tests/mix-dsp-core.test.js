@@ -30,6 +30,34 @@ assert.ok(duckPoints.some(p=>Math.abs(p[0]-11)<1e-9));
 assert.ok(duckPoints.some(p=>Math.abs(p[0]-12)<1e-9));
 assert.ok(duckPoints.some(p=>Math.abs(p[0]-12.2)<1e-9));
 
+// Smart Mix impact-cut uses the same preview/export DSP envelope: a quarter-count anticipation dip
+// before the exact section boundary, followed by the existing click-safe microfade to zero.
+const impactClip={
+  type:'music',sourceName:'Impact source',start:0,duration:480/152*2,volume:1,fadeIn:0,fadeOut:.008,
+  smartMix:{sourceStartEight:1,sourceEndEight:2,transitionOut:{type:'impact-cut',countLength:0}}
+};
+const impactShape=DSP.impactShape(impactClip);
+const countSeconds=60/152;
+assert.ok(impactShape,'impact-cut should create a DSP anticipation shape');
+assert.ok(Math.abs(impactShape.prepSeconds-countSeconds*.25)<1e-9,'impact preparation must be exactly one quarter count');
+assert.equal(impactShape.fadeSeconds,.008);
+assert.equal(impactShape.floor,.22);
+assert.equal(DSP.clipEnvelopeAt(impactClip,impactClip.duration-impactShape.prepSeconds),1);
+const midway=impactClip.duration-(impactShape.prepSeconds+impactShape.fadeSeconds)/2;
+const midwayGain=DSP.clipEnvelopeAt(impactClip,midway);
+assert.ok(midwayGain>.22&&midwayGain<1,'anticipation region should ramp down before the hit');
+assert.ok(Math.abs(DSP.clipEnvelopeAt(impactClip,impactClip.duration-impactShape.fadeSeconds)-.22)<1e-9,'microfade starts from the anticipation floor');
+assert.equal(DSP.clipEnvelopeAt(impactClip,impactClip.duration),0);
+const impactPoints=DSP.clipAutomationPoints(impactClip,0,impactClip.duration);
+assert.ok(impactPoints.some(p=>Math.abs(p[0]-(impactClip.duration-impactShape.prepSeconds))<1e-9),'automation includes quarter-count anticipation start');
+assert.ok(impactPoints.some(p=>Math.abs(p[0]-(impactClip.duration-impactShape.fadeSeconds))<1e-9),'automation includes impact microfade start');
+assert.equal(impactClip.start,0,'DSP must not move the clip start');
+assert.ok(Math.abs(impactClip.duration-(480/152*2))<1e-12,'DSP must not change timeline duration');
+
+const flowClip={...impactClip,smartMix:{...impactClip.smartMix,transitionOut:{type:'flow-blend'}},fadeOut:.020};
+assert.equal(DSP.impactShape(flowClip),null,'non-impact transition types retain their existing envelope');
+assert.ok(Math.abs(DSP.clipEnvelopeAt(flowClip,flowClip.duration-.010)-.5)<1e-9,'flow microfade behavior remains unchanged');
+
 const events=[];const param={cancelScheduledValues:t=>events.push(['cancel',t]),setValueAtTime:(v,t)=>events.push(['set',v,t]),linearRampToValueAtTime:(v,t)=>events.push(['ramp',v,t])};
 DSP.scheduleParam(param,[[2,.2],[3,.8],[4,0]],10,2);
 assert.deepEqual(events[0],['cancel',10]);
