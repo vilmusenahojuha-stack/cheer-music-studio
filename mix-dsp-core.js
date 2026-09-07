@@ -20,7 +20,8 @@
   }
   function impactShape(clip){return transitionTiming(clip,'impact-cut',{countLength:.25,floor:.22,minFloor:.08,maxFloor:.65});}
   function flowShape(clip){return transitionTiming(clip,'flow-blend',{countLength:.5,floor:.72,minFloor:.55,maxFloor:.9});}
-  function transitionShape(clip){return impactShape(clip)||flowShape(clip);}
+  function guardedShape(clip){return transitionTiming(clip,'guarded-cut',{countLength:.75,floor:.42,minFloor:.25,maxFloor:.65});}
+  function transitionShape(clip){return impactShape(clip)||flowShape(clip)||guardedShape(clip);}
   function clipEnvelopeAt(clip,t){
     const c=clip||{},start=num(c.start),dur=Math.max(0,num(c.duration)),local=num(t)-start;
     if(local<0||local>dur)return 0;
@@ -70,5 +71,5 @@
     param.cancelScheduledValues?.(Math.max(0,at(sorted[0][0])));
     sorted.forEach((p,i)=>{const ct=Math.max(0,at(p[0])),v=Math.max(floor,num(p[1]));if(i===0)param.setValueAtTime(v,ct);else param.linearRampToValueAtTime(v,ct)});
   }
-  return{clamp,num,rateForClip,impactShape,flowShape,clipEnvelopeAt,voiceWindows,duckFactorAt,clipAutomationPoints,duckAutomationPoints,scheduleParam};
+  return{clamp,num,rateForClip,impactShape,flowShape,guardedShape,clipEnvelopeAt,voiceWindows,duckFactorAt,clipAutomationPoints,duckAutomationPoints,scheduleParam};
 });
