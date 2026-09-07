@@ -4,6 +4,7 @@
   function finite(value,fallback=0){const n=Number(value);return Number.isFinite(n)?n:fallback;}
   function clamp01(value){return Math.max(0,Math.min(1,finite(value)));}
   function average(values=[]){return values.length?values.reduce((a,b)=>a+b,0)/values.length:0;}
+  function sourceKey(candidate={}){return candidate?.trackId?`id:${candidate.trackId}`:candidate?.sourceName?`name:${candidate.sourceName}`:null;}
 
   function transitionQualityCore(){
     if(typeof module!=='undefined'&&module.exports){
@@ -14,15 +15,19 @@
   }
 
   function transitionCompatibility(previous,current,{idealGapEights=0,maxGapEights=8}={}){
-    if(!previous||!current)return {score:1,gapEights:0,ordered:true,overlap:false};
+    if(!previous||!current)return {score:1,gapEights:0,ordered:true,overlap:false,sourceChanged:false};
+    const previousSource=sourceKey(previous),currentSource=sourceKey(current);
+    if(previousSource&&currentSource&&previousSource!==currentSource){
+      return {score:1,gapEights:0,ordered:true,overlap:false,sourceChanged:true};
+    }
     const gap=current.startEight-previous.endEight-1;
     const overlap=gap<0;
-    if(overlap)return {score:0,gapEights:gap,ordered:false,overlap:true};
+    if(overlap)return {score:0,gapEights:gap,ordered:false,overlap:true,sourceChanged:false};
     const ideal=Math.max(0,Math.floor(finite(idealGapEights)));
     const maxGap=Math.max(ideal+1,Math.floor(finite(maxGapEights,8)));
     const distance=Math.abs(gap-ideal);
     const score=distance===0?1:clamp01(1-distance/maxGap);
-    return {score,gapEights:gap,ordered:true,overlap:false};
+    return {score,gapEights:gap,ordered:true,overlap:false,sourceChanged:false};
   }
 
   function normalizeCandidates(match,index){
@@ -31,6 +36,8 @@
       .filter(c=>Number.isFinite(Number(c?.startEight))&&Number.isFinite(Number(c?.endEight)))
       .map((candidate,candidateIndex)=>({
         ...candidate,
+        sourceName:candidate?.sourceName==null?null:String(candidate.sourceName),
+        trackId:candidate?.trackId==null?null:String(candidate.trackId),
         score:clamp01(candidate.score),
         startEight:Math.max(1,Math.floor(finite(candidate.startEight))),
         endEight:Math.max(1,Math.floor(finite(candidate.endEight))),
@@ -38,7 +45,7 @@
         candidateIndex
       }))
       .filter(c=>c.endEight>=c.startEight)
-      .sort((a,b)=>b.score-a.score||a.startEight-b.startEight);
+      .sort((a,b)=>b.score-a.score||String(a.sourceName||'').localeCompare(String(b.sourceName||''))||a.startEight-b.startEight);
   }
 
   function qualityAwareTransition(previousStep,currentStep,compatibility,{
@@ -147,7 +154,7 @@
     return {...result,sourceCoverage:finite(matchPlan?.coverage,result.coverage),sourceAverageScore:matchPlan?.averageScore??null};
   }
 
-  const api={transitionCompatibility,normalizeCandidates,qualityAwareTransition,optimizeSequence,optimizeMatchedPlan};
+  const api={sourceKey,transitionCompatibility,normalizeCandidates,qualityAwareTransition,optimizeSequence,optimizeMatchedPlan};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixSequenceCore=api;
 })();
