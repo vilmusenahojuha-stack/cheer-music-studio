@@ -6,6 +6,7 @@
   const stretch=()=>window.CheerTimeStretch;
   const hqStretch=()=>window.CheerHighQualityStretch||null;
   const fxCore=()=>window.CheerFxRenderCore||null;
+  const voiceProcessing=()=>window.CheerVoiceoverProcessingCore||null;
   const trackFor=(project,c)=>(project.tracks||[]).find(t=>t.name===c.sourceName);
   const clipEnd=c=>(Number(c?.start)||0)+Math.max(0,Number(c?.duration)||0);
   const projectLength=project=>{
@@ -86,7 +87,10 @@
     const duckPoints=dsp()?.duckAutomationPoints?.(clip,clips,plan.timelineStart,end,settings)||[[plan.timelineStart,1],[end,1]];
     dsp()?.scheduleParam?.(clipGain.gain,envPoints,plan.when,plan.timelineStart);
     dsp()?.scheduleParam?.(duckGain.gain,duckPoints,plan.when,plan.timelineStart);
-    source.connect(clipGain).connect(duckGain).connect(offline.destination);
+    source.connect(clipGain).connect(duckGain);
+    const voicePlan=voiceProcessing()?.processingPlan?.(project,clip)||null;
+    const voiceChain=voiceProcessing()?.configureWebAudioNodes?.(offline,voicePlan)||null;
+    if(voiceChain){duckGain.connect(voiceChain.input);voiceChain.output.connect(offline.destination);}else duckGain.connect(offline.destination);
     const renderedOffset=pitchPreserved?ts.renderedSourceOffset(plan.sourceOffset,rate):plan.sourceOffset;source.start(plan.when,renderedOffset,timelineDuration);return true;
   }
   function scheduleImpactVoice(offline,event,voice){
