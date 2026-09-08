@@ -1,4 +1,4 @@
-((root,factory)=>{const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.CheerMixDSP=api})(typeof globalThis!=='undefined'?globalThis:this,()=>{
+((root,factory)=>{const voiceDuck=typeof module==='object'&&module.exports?require('./voiceover-ducking-render-core.js'):root.CheerVoiceoverDuckingRenderCore;const api=factory(voiceDuck);if(typeof module==='object'&&module.exports)module.exports=api;else root.CheerMixDSP=api})(typeof globalThis!=='undefined'?globalThis:this,(voiceDuck)=>{
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const num=(v,f=0)=>Number.isFinite(Number(v))?Number(v):f;
   function rateForClip(clip,trackAnalysis={},targetBpm=147){
@@ -60,8 +60,17 @@
     const c=clip||{},cs=num(c.start),dur=Math.max(0,num(c.duration)),ce=cs+dur,fi=clamp(num(c.fadeIn),0,dur),fo=clamp(num(c.fadeOut),0,dur),s=Math.max(start,cs),e=Math.min(end,ce),shape=transitionShape(c);
     if(!(e>s))return[];const times=uniqueTimes([s,e,cs,cs+fi,ce-fo,shape?ce-shape.prepSeconds:NaN,ce],s,e);return times.map(t=>[t,clipEnvelopeAt(c,t)]);
   }
+  function competitionDuckAutomationPoints(settings,start,end){
+    const pkg=settings?.voiceoverCompetitionPackage;
+    const bpm=num(pkg?.bpm,0);
+    if(!voiceDuck?.normalizePackageReservations||!voiceDuck?.automationPointsForClip||!pkg||!(bpm>0))return null;
+    if(!voiceDuck.normalizePackageReservations(pkg).length)return null;
+    return voiceDuck.automationPointsForClip(pkg,start,end,bpm);
+  }
   function duckAutomationPoints(clip,clips,start,end,settings={}){
     if(clip?.type!=='music'||settings?.autoDuck===false)return[[start,1],[end,1]];
+    const competition=competitionDuckAutomationPoints(settings,start,end);
+    if(competition)return competition;
     const times=[start,end];for(const w of voiceWindows(clips,settings))times.push(w.start,w.voiceStart,w.voiceEnd,w.end);
     return uniqueTimes(times,start,end).map(t=>[t,duckFactorAt(t,clips,settings)]);
   }
@@ -71,5 +80,5 @@
     param.cancelScheduledValues?.(Math.max(0,at(sorted[0][0])));
     sorted.forEach((p,i)=>{const ct=Math.max(0,at(p[0])),v=Math.max(floor,num(p[1]));if(i===0)param.setValueAtTime(v,ct);else param.linearRampToValueAtTime(v,ct)});
   }
-  return{clamp,num,rateForClip,impactShape,flowShape,guardedShape,clipEnvelopeAt,voiceWindows,duckFactorAt,clipAutomationPoints,duckAutomationPoints,scheduleParam};
+  return{clamp,num,rateForClip,impactShape,flowShape,guardedShape,clipEnvelopeAt,voiceWindows,duckFactorAt,clipAutomationPoints,competitionDuckAutomationPoints,duckAutomationPoints,scheduleParam};
 });
