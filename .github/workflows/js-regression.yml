@@ -43,6 +43,8 @@ jobs:
         run: node tests/voiceover-auto-loudness.test.js
       - name: Voiceover loudness to competition processing integration
         run: node tests/voiceover-loudness-processing.integration.test.js
+      - name: Competition master input contract tests
+        run: node tests/competition-master-input-core.test.js
       - name: Pitch-preserving time-stretch tests
         run: node tests/time-stretch-core.test.js
       - name: Signalsmith HQ adapter tests
