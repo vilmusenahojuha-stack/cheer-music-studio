@@ -11,9 +11,9 @@ function validInput(){
       {slotId:'vo-intro',countLength:2,durationSec:0.8,risks:[]},
       {slotId:'vo-ending',countLength:4,durationSec:1.6,risks:[]}
     ]},
-    duckingPlan:{kind:'cheer-voiceover-ducking-plan',status:'preview-ready',riskFlags:[],items:[
-      {slotId:'vo-intro',musicGainDb:-4,attackCounts:0.5,releaseCounts:0.5,risks:[]},
-      {slotId:'vo-ending',musicGainDb:-6,attackCounts:0.5,releaseCounts:1,risks:[]}
+    duckingPlan:{kind:'cheer-voiceover-ducking-plan',status:'preview-ready',riskFlags:[],reservations:[
+      {slotId:'vo-intro',duckDb:-4,attackCounts:0.5,releaseCounts:0.5,risks:[]},
+      {slotId:'vo-ending',duckDb:-6,attackCounts:0.5,releaseCounts:1,risks:[]}
     ]},
     conflictPlan:{kind:'cheer-voiceover-fx-conflict-plan',status:'preview-ready',riskFlags:[],conflicts:[]},
     priorityPlan:{kind:'cheer-voiceover-competition-priority-plan',status:'preview-ready',riskFlags:[],selections:[
@@ -35,6 +35,14 @@ assert.equal(plan.nonDestructive,true);
 assert.equal(plan.executable,false);
 assert.equal(plan.safePreviewOnly,true);
 
+// Backward compatibility: older hand-built plans may still expose ducking items.
+let legacy=validInput();
+legacy.duckingPlan.items=legacy.duckingPlan.reservations;
+delete legacy.duckingPlan.reservations;
+plan=core.buildVoiceoverCompetitionPackage(legacy);
+assert.equal(plan.status,'preview-ready');
+assert.equal(plan.selected.find(x=>x.slotId==='vo-intro').ducking.musicGainDb,-4);
+
 let input=validInput();
 input.conflictPlan={kind:'cheer-voiceover-fx-conflict-plan',status:'review-required',riskFlags:['fx-review'],conflicts:[
   {slotId:'vo-ending',fxId:'fx-hero',resolution:{action:'move-fx-preview'}}
@@ -46,7 +54,7 @@ assert(plan.selected.find(x=>x.slotId==='vo-ending').risks.includes('voiceover-f
 assert(plan.riskFlags.includes('fx-review'));
 
 input=validInput();
-input.duckingPlan.items=input.duckingPlan.items.filter(x=>x.slotId!=='vo-intro');
+input.duckingPlan.reservations=input.duckingPlan.reservations.filter(x=>x.slotId!=='vo-intro');
 plan=core.buildVoiceoverCompetitionPackage(input);
 const incomplete=plan.selected.find(x=>x.slotId==='vo-intro');
 assert.equal(incomplete.status,'review-required');
