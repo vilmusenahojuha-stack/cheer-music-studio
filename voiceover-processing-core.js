@@ -32,6 +32,11 @@
     'support-callout':Object.freeze({presenceDb:-.3,compressorThresholdDb:1,compressorRatio:-.3,speechGainDb:-.2}),
     'final-callout':Object.freeze({presenceDb:.4,compressorThresholdDb:-1,compressorRatio:.2,speechGainDb:.3,outputHeadroomDb:-.2})
   });
+  const RHYTHM_ADJUSTMENTS=Object.freeze({
+    hit:Object.freeze({compressorAttackSeconds:-.002,compressorReleaseSeconds:-.035,compressorRatio:.2}),
+    callout:Object.freeze({compressorAttackSeconds:-.001,compressorReleaseSeconds:-.01}),
+    phrase:Object.freeze({compressorAttackSeconds:.002,compressorReleaseSeconds:.04,compressorRatio:.15})
+  });
   function competitionVoiceoverActive(project){
     return project?.mixSettings?.voiceoverCompetitionPackage?.kind==='cheer-voiceover-competition-package';
   }
@@ -51,6 +56,13 @@
     if(key==='final'||key==='ending-callout'||key==='finale-callout'||key==='tag')return 'final-callout';
     return ROLE_ADJUSTMENTS[key]?key:'other';
   }
+  function canonicalRhythmShape(value,counts=null){
+    const key=String(value||'').trim().toLowerCase();
+    if(key==='hit'||key==='callout'||key==='phrase')return key;
+    const n=finite(counts,null);
+    if(n!=null){if(n<=2)return 'hit';if(n===3)return 'callout';if(n>=4)return 'phrase';}
+    return 'other';
+  }
   function selectedVoiceoverForClip(project,clip){
     const selected=Array.isArray(project?.mixSettings?.voiceoverCompetitionPackage?.selected)?project.mixSettings.voiceoverCompetitionPackage.selected:[];
     const ids=[clip?.voiceoverSlotId,clip?.slotId,clip?.competitionSlotId,clip?.id].filter(v=>v!=null&&String(v)!=='').map(String);
@@ -67,13 +79,20 @@
     if(direct!=null&&String(direct).trim())return canonicalRole(direct);
     return canonicalRole(selectedVoiceoverForClip(project,clip)?.role);
   }
-  function applyRoleAdjustment(profile,role){
-    const adjustment=ROLE_ADJUSTMENTS[canonicalRole(role)];
+  function resolveRhythm(project,clip){
+    const selected=selectedVoiceoverForClip(project,clip);
+    const counts=finite(clip?.voiceoverAssignedCounts??clip?.assignedCounts??selected?.rhythm?.assignedCounts??selected?.rhythm?.countLength,null);
+    const shape=canonicalRhythmShape(clip?.voiceoverRhythmShape??clip?.rhythmShape??selected?.rhythm?.shape,counts);
+    return {shape,assignedCounts:counts};
+  }
+  function applyAdjustment(profile,adjustment){
     if(!adjustment)return {...profile};
     const adjusted={...profile};
     for(const [key,delta] of Object.entries(adjustment))adjusted[key]=finite(adjusted[key],finite(DEFAULT_PROFILE[key],0))+delta;
     return adjusted;
   }
+  function applyRoleAdjustment(profile,role){return applyAdjustment(profile,ROLE_ADJUSTMENTS[canonicalRole(role)]);}
+  function applyRhythmAdjustment(profile,shape){return applyAdjustment(profile,RHYTHM_ADJUSTMENTS[canonicalRhythmShape(shape)]);}
   function normalizeProfile(overrides={}){
     const p={...DEFAULT_PROFILE,...(overrides||{})};
     return {
@@ -97,21 +116,28 @@
     if(project?.mixSettings?.competitionVoiceProcessing===false)return {active:false,reason:'disabled'};
     const sectionType=resolveSectionType(project,clip);
     const role=resolveRole(project,clip);
+    const rhythm=resolveRhythm(project,clip);
     const sectionProfile=SECTION_PROFILES[sectionType]||null;
     const roleAdjustment=ROLE_ADJUSTMENTS[role]||null;
+    const rhythmAdjustment=RHYTHM_ADJUSTMENTS[rhythm.shape]||null;
     const baseProfile={...DEFAULT_PROFILE,...sectionProfile};
     const roleAdjusted=applyRoleAdjustment(baseProfile,role);
-    const profile=normalizeProfile({...roleAdjusted,...(project?.mixSettings?.competitionVoiceProcessingProfile||{})});
+    const rhythmAdjusted=applyRhythmAdjustment(roleAdjusted,rhythm.shape);
+    const profile=normalizeProfile({...rhythmAdjusted,...(project?.mixSettings?.competitionVoiceProcessingProfile||{})});
     return {
       active:true,
       nonDestructive:true,
       timingSafe:true,
       sectionAware:true,
       roleAware:true,
+      rhythmAware:true,
       sectionType,
       role,
+      rhythmShape:rhythm.shape,
+      assignedCounts:rhythm.assignedCounts,
       sectionProfileId:sectionProfile?.id||DEFAULT_PROFILE.id,
       roleProfileId:roleAdjustment?`competition-voice-${role}-v1`:'competition-voice-role-neutral-v1',
+      rhythmProfileId:rhythmAdjustment?`competition-voice-rhythm-${rhythm.shape}-v1`:'competition-voice-rhythm-neutral-v1',
       profile,
       speechGain:dbToGain(profile.speechGainDb),
       outputGain:dbToGain(profile.outputHeadroomDb),
@@ -129,5 +155,5 @@
     highpass.connect(presence).connect(compressor).connect(speechGain).connect(outputGain);
     return {input:highpass,output:outputGain,highpass,presence,compressor,speechGain,outputGain,plan};
   }
-  return {DEFAULT_PROFILE,SECTION_PROFILES,ROLE_ADJUSTMENTS,dbToGain,competitionVoiceoverActive,canonicalSectionType,canonicalRole,selectedVoiceoverForClip,resolveSectionType,resolveRole,applyRoleAdjustment,normalizeProfile,processingPlan,configureWebAudioNodes};
+  return {DEFAULT_PROFILE,SECTION_PROFILES,ROLE_ADJUSTMENTS,RHYTHM_ADJUSTMENTS,dbToGain,competitionVoiceoverActive,canonicalSectionType,canonicalRole,canonicalRhythmShape,selectedVoiceoverForClip,resolveSectionType,resolveRole,resolveRhythm,applyRoleAdjustment,applyRhythmAdjustment,normalizeProfile,processingPlan,configureWebAudioNodes};
 });
