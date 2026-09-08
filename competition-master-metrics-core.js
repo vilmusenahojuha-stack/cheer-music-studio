@@ -151,7 +151,6 @@
     const truePeakDbtp=linearToDb(truePeakLinear);
 
     const sectionMeasurements=(Array.isArray(sections)?sections:[])
-      .map(normalizeSection)
       .map((section,index)=>normalizeSection(section,index,durationSeconds))
       .filter(section=>section.end>section.start)
       .map(section=>{
