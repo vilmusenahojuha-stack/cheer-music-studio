@@ -19,6 +19,13 @@
     speechGainDb:1.5,
     outputHeadroomDb:-1
   });
+  const LOUDNESS_POLICY=Object.freeze({
+    id:'competition-voice-loudness-v1',
+    targetIntegratedLufs:-18,
+    maxBoostDb:2,
+    maxCutDb:4,
+    truePeakCeilingDb:-1.5
+  });
   const SECTION_PROFILES=Object.freeze({
     intro:Object.freeze({id:'competition-voice-intro-v1',presenceDb:2.4,compressorThresholdDb:-19,compressorRatio:3,speechGainDb:1.8}),
     dance:Object.freeze({id:'competition-voice-dance-v1',presenceDb:1.5,compressorThresholdDb:-16,compressorRatio:2.6,speechGainDb:1}),
@@ -86,6 +93,29 @@
     const shape=canonicalRhythmShape(clip?.voiceoverRhythmShape??clip?.rhythmShape??selected?.rhythm?.shape,counts);
     return {shape,assignedCounts:counts};
   }
+  function resolveLoudness(project,clip){
+    const selected=selectedVoiceoverForClip(project,clip);
+    const integratedLufs=optionalFinite(clip?.voiceoverIntegratedLufs??clip?.integratedLufs??clip?.lufs??selected?.audio?.integratedLufs??selected?.integratedLufs,null);
+    const truePeakDb=optionalFinite(clip?.voiceoverTruePeakDb??clip?.truePeakDb??clip?.truePeakDbtp??selected?.audio?.truePeakDb??selected?.truePeakDb,null);
+    return {integratedLufs,truePeakDb};
+  }
+  function loudnessPlan(project,clip,policyOverrides={}){
+    const measurement=resolveLoudness(project,clip);
+    const policy={...LOUDNESS_POLICY,...(project?.mixSettings?.competitionVoiceLoudnessPolicy||{}),...(policyOverrides||{})};
+    const targetIntegratedLufs=clamp(finite(policy.targetIntegratedLufs,LOUDNESS_POLICY.targetIntegratedLufs),-24,-14);
+    const maxBoostDb=clamp(finite(policy.maxBoostDb,LOUDNESS_POLICY.maxBoostDb),0,4);
+    const maxCutDb=clamp(finite(policy.maxCutDb,LOUDNESS_POLICY.maxCutDb),0,8);
+    const truePeakCeilingDb=clamp(finite(policy.truePeakCeilingDb,LOUDNESS_POLICY.truePeakCeilingDb),-4,-.5);
+    if(measurement.integratedLufs==null)return {active:false,reason:'measurement-missing',integratedLufs:null,truePeakDb:measurement.truePeakDb,targetIntegratedLufs,adjustmentDb:0,gain:1,truePeakCeilingDb};
+    let adjustmentDb=clamp(targetIntegratedLufs-measurement.integratedLufs,-maxCutDb,maxBoostDb);
+    let peakLimited=false;
+    if(measurement.truePeakDb!=null){
+      const peakSafeAdjustment=truePeakCeilingDb-measurement.truePeakDb;
+      if(adjustmentDb>peakSafeAdjustment){adjustmentDb=peakSafeAdjustment;peakLimited=true;}
+      adjustmentDb=clamp(adjustmentDb,-maxCutDb,maxBoostDb);
+    }
+    return {active:true,reason:peakLimited?'true-peak-limited':'target-match',integratedLufs:measurement.integratedLufs,truePeakDb:measurement.truePeakDb,targetIntegratedLufs,adjustmentDb,gain:dbToGain(adjustmentDb),truePeakCeilingDb,peakLimited};
+  }
   function applyAdjustment(profile,adjustment){
     if(!adjustment)return {...profile};
     const adjusted={...profile};
@@ -118,6 +148,7 @@
     const sectionType=resolveSectionType(project,clip);
     const role=resolveRole(project,clip);
     const rhythm=resolveRhythm(project,clip);
+    const loudness=loudnessPlan(project,clip);
     const sectionProfile=SECTION_PROFILES[sectionType]||null;
     const roleAdjustment=ROLE_ADJUSTMENTS[role]||null;
     const rhythmAdjustment=RHYTHM_ADJUSTMENTS[rhythm.shape]||null;
@@ -132,6 +163,7 @@
       sectionAware:true,
       roleAware:true,
       rhythmAware:true,
+      loudnessAware:true,
       sectionType,
       role,
       rhythmShape:rhythm.shape,
@@ -139,10 +171,13 @@
       sectionProfileId:sectionProfile?.id||DEFAULT_PROFILE.id,
       roleProfileId:roleAdjustment?`competition-voice-${role}-v1`:'competition-voice-role-neutral-v1',
       rhythmProfileId:rhythmAdjustment?`competition-voice-rhythm-${rhythm.shape}-v1`:'competition-voice-rhythm-neutral-v1',
+      loudnessPolicyId:LOUDNESS_POLICY.id,
+      loudness,
       profile,
       speechGain:dbToGain(profile.speechGainDb),
+      loudnessGain:loudness.gain,
       outputGain:dbToGain(profile.outputHeadroomDb),
-      stages:['highpass','presence','compressor','speech-gain','output-headroom']
+      stages:['highpass','presence','compressor','speech-gain','loudness-balance','output-headroom']
     };
   }
   function configureWebAudioNodes(context,plan){
@@ -152,9 +187,10 @@
     const presence=context.createBiquadFilter();presence.type='peaking';presence.frequency.value=p.presenceHz;presence.Q.value=p.presenceQ;presence.gain.value=p.presenceDb;
     const compressor=context.createDynamicsCompressor();compressor.threshold.value=p.compressorThresholdDb;compressor.knee.value=p.compressorKneeDb;compressor.ratio.value=p.compressorRatio;compressor.attack.value=p.compressorAttackSeconds;compressor.release.value=p.compressorReleaseSeconds;
     const speechGain=context.createGain();speechGain.gain.value=plan.speechGain;
+    const loudnessGain=context.createGain();loudnessGain.gain.value=plan.loudnessGain??1;
     const outputGain=context.createGain();outputGain.gain.value=plan.outputGain;
-    highpass.connect(presence).connect(compressor).connect(speechGain).connect(outputGain);
-    return {input:highpass,output:outputGain,highpass,presence,compressor,speechGain,outputGain,plan};
+    highpass.connect(presence).connect(compressor).connect(speechGain).connect(loudnessGain).connect(outputGain);
+    return {input:highpass,output:outputGain,highpass,presence,compressor,speechGain,loudnessGain,outputGain,plan};
   }
-  return {DEFAULT_PROFILE,SECTION_PROFILES,ROLE_ADJUSTMENTS,RHYTHM_ADJUSTMENTS,dbToGain,competitionVoiceoverActive,canonicalSectionType,canonicalRole,canonicalRhythmShape,selectedVoiceoverForClip,resolveSectionType,resolveRole,resolveRhythm,applyRoleAdjustment,applyRhythmAdjustment,normalizeProfile,processingPlan,configureWebAudioNodes};
+  return {DEFAULT_PROFILE,LOUDNESS_POLICY,SECTION_PROFILES,ROLE_ADJUSTMENTS,RHYTHM_ADJUSTMENTS,dbToGain,competitionVoiceoverActive,canonicalSectionType,canonicalRole,canonicalRhythmShape,selectedVoiceoverForClip,resolveSectionType,resolveRole,resolveRhythm,resolveLoudness,loudnessPlan,applyRoleAdjustment,applyRhythmAdjustment,normalizeProfile,processingPlan,configureWebAudioNodes};
 });
