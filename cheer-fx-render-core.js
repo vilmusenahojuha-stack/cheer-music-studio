@@ -4,6 +4,7 @@
   const ALLOWED_SECTIONS=new Set(['stunt','basket','pyramid','ending']);
   const HIT_ROLE_FACTOR=Object.freeze({principal:1,support:.82,omit:0});
   const ARC_PRIORITY=Object.freeze({peak:4,drive:3,build:2,release:1});
+  const PHRASE_FX_BUDGET=Object.freeze({maxSupportImpacts:1,preservePrincipal:true});
   const SECTION_SUPPORT_POLICY=Object.freeze({
     stunt:Object.freeze({id:'stunt-clean-support',supportFactor:.82,supportBuildFactor:.78,allowBuildSupport:false,allowReleaseSupport:false,omitSecondary:false}),
     basket:Object.freeze({id:'basket-snap-support',supportFactor:.72,supportBuildFactor:.66,allowBuildSupport:false,allowReleaseSupport:false,omitSecondary:false}),
@@ -31,6 +32,16 @@
     const intensity=clamp(finite(anchor.intensityScore,finite(anchor.priority,.5)),0,1);
     const confidence=clamp(finite(anchor.confidence,.72),0,1);
     return arc+ending+hero+intensity*.7+confidence*.3;
+  }
+
+  function supportHitScore(anchor={}){
+    const arc=String(anchor.sectionArcStage||'drive').toLowerCase();
+    const section=String(anchor.sectionType||'').toLowerCase();
+    const intensity=clamp(finite(anchor.intensityScore,finite(anchor.priority,.5)),0,1);
+    const confidence=clamp(finite(anchor.confidence,.72),0,1);
+    const structural=section==='pyramid'&&arc==='build'?.24:section==='basket'?.12:section==='stunt'?.08:0;
+    const arcWeight=arc==='drive'?.35:arc==='build'?.22:arc==='peak'?.4:.08;
+    return structural+arcWeight+intensity*.55+confidence*.25;
   }
 
   function supportPolicyFor(sectionType){
@@ -65,25 +76,42 @@
       const hitRole=winner&&winner.id===anchor.id?'principal':resolveSecondaryRole(anchor);
       const supportPolicy=supportPolicyFor(sectionType);
       if(anchor.sectionId)impactRoleBySection.set(anchor.sectionId,hitRole);
-      return {
-        ...anchor,
-        hitRole,
-        supportPolicy:supportPolicy.id,
-        principalHitScore:principalHitScore(anchor),
-        executable:hitRole==='omit'?false:anchor.executable
-      };
+      return {...anchor,hitRole,supportPolicy:supportPolicy.id,principalHitScore:principalHitScore(anchor),executable:hitRole==='omit'?false:anchor.executable};
     });
     return selected.map(anchor=>{
       if(anchor?.kind!=='riser'||!anchor.sectionId)return anchor;
       const pairedRole=impactRoleBySection.get(anchor.sectionId);
       if(!pairedRole)return anchor;
       const supportPolicy=supportPolicyFor(anchor.sectionType);
-      return {
-        ...anchor,
-        hitRole:pairedRole==='principal'?'principal-build':pairedRole==='support'?'support-build':'omit',
-        supportPolicy:supportPolicy.id,
-        executable:pairedRole==='omit'?false:anchor.executable
-      };
+      return {...anchor,hitRole:pairedRole==='principal'?'principal-build':pairedRole==='support'?'support-build':'omit',supportPolicy:supportPolicy.id,executable:pairedRole==='omit'?false:anchor.executable};
+    });
+  }
+
+  function enforcePhraseFxBudget(anchors=[],budget=PHRASE_FX_BUDGET){
+    const source=(Array.isArray(anchors)?anchors:[]).map(anchor=>({...anchor}));
+    const maxSupport=Math.max(0,Math.floor(finite(budget?.maxSupportImpacts,PHRASE_FX_BUDGET.maxSupportImpacts)));
+    const supportByPhrase=new Map();
+    for(const anchor of source){
+      if(anchor?.kind!=='impact'||anchor.executable===false||anchor.hitRole!=='support')continue;
+      const group=phraseGroupFor(anchor);
+      if(!supportByPhrase.has(group))supportByPhrase.set(group,[]);
+      supportByPhrase.get(group).push(anchor);
+    }
+    const keepIds=new Set();
+    for(const supports of supportByPhrase.values()){
+      supports.sort((a,b)=>supportHitScore(b)-supportHitScore(a)||finite(a.at,0)-finite(b.at,0));
+      supports.slice(0,maxSupport).forEach(anchor=>keepIds.add(anchor.id));
+    }
+    const droppedSections=new Set();
+    const balanced=source.map(anchor=>{
+      if(anchor?.kind!=='impact'||anchor.hitRole!=='support'||anchor.executable===false)return anchor;
+      if(keepIds.has(anchor.id))return {...anchor,fxBudgetDecision:'keep',fxBudgetReason:'phrase-support-budget'};
+      if(anchor.sectionId)droppedSections.add(anchor.sectionId);
+      return {...anchor,hitRole:'omit',executable:false,fxBudgetDecision:'drop',fxBudgetReason:'phrase-support-budget'};
+    });
+    return balanced.map(anchor=>{
+      if(anchor?.kind!=='riser'||!anchor.sectionId||!droppedSections.has(anchor.sectionId))return anchor;
+      return {...anchor,hitRole:'omit',executable:false,fxBudgetDecision:'drop',fxBudgetReason:'paired-impact-budget-drop'};
     });
   }
 
@@ -107,16 +135,7 @@
     const intensity=intensityFactor(anchor,1);
     const roleFactor=hitRoleFactor(anchor);
     const strength=clamp(baseStrength*intensity*roleFactor,.35,1);
-    return{
-      id:String(anchor.id||`cheer-impact-${Math.round(at*1000)}`),
-      kind:'impact',fxKind:'impact',at,duration:.16,
-      sectionId:anchor.sectionId||null,sectionType,confidence,
-      intensityScore:Number.isFinite(Number(anchor.intensityScore))?clamp(Number(anchor.intensityScore),0,1):null,
-      intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,supportPolicy:anchor.supportPolicy||null,strength,
-      low:{wave:'sine',startHz:72,endHz:46,duration:.16,gain:.085*strength},
-      transient:{wave:'triangle',startHz:920,endHz:210,duration:.042,gain:.038*strength},
-      preservesTimelineTiming:true,nonDestructive:true
-    };
+    return{id:String(anchor.id||`cheer-impact-${Math.round(at*1000)}`),kind:'impact',fxKind:'impact',at,duration:.16,sectionId:anchor.sectionId||null,sectionType,confidence,intensityScore:Number.isFinite(Number(anchor.intensityScore))?clamp(Number(anchor.intensityScore),0,1):null,intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,supportPolicy:anchor.supportPolicy||null,fxBudgetDecision:anchor.fxBudgetDecision||null,fxBudgetReason:anchor.fxBudgetReason||null,strength,low:{wave:'sine',startHz:72,endHz:46,duration:.16,gain:.085*strength},transient:{wave:'triangle',startHz:920,endHz:210,duration:.042,gain:.038*strength},preservesTimelineTiming:true,nonDestructive:true};
   }
 
   function riserRenderSpec(anchor={}){
@@ -130,29 +149,17 @@
     const intensity=intensityFactor(anchor,1);
     const roleFactor=hitRoleFactor(anchor);
     const strength=clamp(baseStrength*intensity*roleFactor,.28,.8);
-    return{
-      id:String(anchor.id||`cheer-riser-${Math.round(at*1000)}`),
-      kind:'impact',fxKind:'riser',at,endAt,duration:safeDuration,
-      sectionId:anchor.sectionId||null,sectionType,confidence,
-      intensityScore:Number.isFinite(Number(anchor.intensityScore))?clamp(Number(anchor.intensityScore),0,1):null,
-      intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,supportPolicy:anchor.supportPolicy||null,strength,
-      low:{wave:'sawtooth',startHz:210,endHz:1180,duration:safeDuration,gain:.012*strength},
-      transient:{wave:'triangle',startHz:430,endHz:1680,duration:safeDuration,gain:.007*strength},
-      preservesTimelineTiming:true,nonDestructive:true
-    };
+    return{id:String(anchor.id||`cheer-riser-${Math.round(at*1000)}`),kind:'impact',fxKind:'riser',at,endAt,duration:safeDuration,sectionId:anchor.sectionId||null,sectionType,confidence,intensityScore:Number.isFinite(Number(anchor.intensityScore))?clamp(Number(anchor.intensityScore),0,1):null,intensity:anchor.intensity||null,hitRole:anchor.hitRole||null,supportPolicy:anchor.supportPolicy||null,fxBudgetDecision:anchor.fxBudgetDecision||null,fxBudgetReason:anchor.fxBudgetReason||null,strength,low:{wave:'sawtooth',startHz:210,endHz:1180,duration:safeDuration,gain:.012*strength},transient:{wave:'triangle',startHz:430,endHz:1680,duration:safeDuration,gain:.007*strength},preservesTimelineTiming:true,nonDestructive:true};
   }
 
   function renderSpec(anchor={}){return anchor?.kind==='riser'?riserRenderSpec(anchor):impactRenderSpec(anchor);}
 
   function buildRenderEvents(anchors=[],duration=Infinity){
     const limit=Number.isFinite(Number(duration))?Math.max(0,Number(duration)):Infinity;
-    return selectPatternHits(anchors)
-      .map(renderSpec).filter(Boolean)
-      .filter(event=>event.at<=limit&&event.at+event.duration<=limit+1e-9)
-      .sort((a,b)=>a.at-b.at||(a.fxKind==='riser'?-1:1));
+    return enforcePhraseFxBudget(selectPatternHits(anchors)).map(renderSpec).filter(Boolean).filter(event=>event.at<=limit&&event.at+event.duration<=limit+1e-9).sort((a,b)=>a.at-b.at||(a.fxKind==='riser'?-1:1));
   }
 
-  const api={ALLOWED_SECTIONS,HIT_ROLE_FACTOR,ARC_PRIORITY,SECTION_SUPPORT_POLICY,intensityFactor,phraseGroupFor,principalHitScore,supportPolicyFor,resolveSecondaryRole,selectPatternHits,hitRoleFactor,impactRenderSpec,riserRenderSpec,renderSpec,buildRenderEvents};
+  const api={ALLOWED_SECTIONS,HIT_ROLE_FACTOR,ARC_PRIORITY,PHRASE_FX_BUDGET,SECTION_SUPPORT_POLICY,intensityFactor,phraseGroupFor,principalHitScore,supportHitScore,supportPolicyFor,resolveSecondaryRole,selectPatternHits,enforcePhraseFxBudget,hitRoleFactor,impactRenderSpec,riserRenderSpec,renderSpec,buildRenderEvents};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerFxRenderCore=api;
 })();
