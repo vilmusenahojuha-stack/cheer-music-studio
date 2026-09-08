@@ -22,17 +22,28 @@
     if(plan?.status!=='preview-ready')throw new Error('Smart Mix audioTimelinePlan ei ole preview-ready.');
     if(!Array.isArray(plan?.clips)||!plan.clips.length)throw new Error('Smart Mix audioTimelinePlan ei sisällä clippejä.');
     const tracks=Array.isArray(project.tracks)?project.tracks:[];
-    const clips=plan.clips.map((clip,index)=>{
+    const musicClips=plan.clips.map((clip,index)=>{
       const copy=clonePlain(clip)||{};
       if(!copy.id)copy.id=`smartmix-preview-${index+1}`;
-      if(copy.type!=='music')throw new Error('Smart Mix preview tukee tässä vaiheessa vain musiikkiclippejä.');
+      if(copy.type!=='music')throw new Error('Smart Mix preview tukee audioTimelinePlanissa tässä vaiheessa vain musiikkiclippejä.');
       if(!copy.sourceName)throw new Error('Smart Mix preview -clipiltä puuttuu sourceName.');
       const source=tracks.find(t=>t.name===copy.sourceName);
       if(!source?.url)throw new Error(`Smart Mix preview -lähdeaudiota ei löytynyt: ${copy.sourceName}`);
       if(!Number.isFinite(Number(copy.start))||Number(copy.start)<0||!Number.isFinite(Number(copy.duration))||Number(copy.duration)<=0||!Number.isFinite(Number(copy.sourceOffset||0))||Number(copy.sourceOffset||0)<0)throw new Error(`Smart Mix preview -clipillä on virheellinen ajoitus: ${copy.sourceName}`);
       return copy;
     });
-    const duration=clips.reduce((m,c)=>Math.max(m,clipEnd(c)),0);
+    const musicDuration=musicClips.reduce((m,c)=>Math.max(m,clipEnd(c)),0);
+    const voiceClips=(project.audioTimeline?.clips||[]).filter(c=>c?.type==='voice').map((clip,index)=>{
+      const copy=clonePlain(clip)||{};
+      if(!copy.id)copy.id=`smartmix-voice-${index+1}`;
+      if(!copy.sourceName)throw new Error('Smart Mix preview -voiceoverilta puuttuu sourceName.');
+      const source=tracks.find(t=>t.name===copy.sourceName);
+      if(!source?.url)throw new Error(`Smart Mix preview -voiceoverin lähdeaudiota ei löytynyt: ${copy.sourceName}`);
+      if(!Number.isFinite(Number(copy.start))||Number(copy.start)<0||!Number.isFinite(Number(copy.duration))||Number(copy.duration)<=0||!Number.isFinite(Number(copy.sourceOffset||0))||Number(copy.sourceOffset||0)<0)throw new Error(`Smart Mix preview -voiceoverilla on virheellinen ajoitus: ${copy.sourceName}`);
+      return copy;
+    }).filter(c=>Number(c.start)<musicDuration);
+    const clips=[...musicClips,...voiceClips].sort((a,b)=>(Number(a.start)||0)-(Number(b.start)||0));
+    const duration=clips.reduce((m,c)=>Math.max(m,clipEnd(c)),musicDuration);
     return {
       ...project,
       duration:Math.max(1,duration),
@@ -44,7 +55,7 @@
         clips,
         cheerFxAnchors:clonePlain(plan.cheerFxAnchors)||[]
       },
-      smartMixPreview:{active:true,source:'audioTimelinePlan',nonDestructive:true}
+      smartMixPreview:{active:true,source:'audioTimelinePlan',nonDestructive:true,preservedVoiceovers:voiceClips.length}
     };
   }
   async function decodeTracks(project,onProgress=()=>{}){
