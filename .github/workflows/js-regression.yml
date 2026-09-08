@@ -47,6 +47,8 @@ jobs:
         run: node tests/competition-master-input-core.test.js
       - name: Rendered competition master metrics tests
         run: node tests/competition-master-metrics-core.test.js
+      - name: Post-mix competition clarity metrics tests
+        run: node tests/competition-master-clarity-metrics-core.test.js
       - name: Competition master export readiness bridge tests
         run: node tests/competition-master-export-readiness-core.test.js
       - name: Competition master final check tests
