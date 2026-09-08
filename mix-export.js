@@ -1,8 +1,11 @@
 (()=>{
-  const q=s=>document.querySelector(s);let exporting=false,lastCompetitionMasterMeasurement=null,lastCompetitionMasterMetrics=null,masterMetricsLoadPromise=null;
+  const q=s=>document.querySelector(s);let exporting=false,lastCompetitionMasterMeasurement=null,lastCompetitionMasterMetrics=null,lastCompetitionMasterInput=null,lastCompetitionMasterReadiness=null,masterMetricsLoadPromise=null,masterReadinessLoadPromise=null;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));const db=v=>v>0?20*Math.log10(v):-Infinity;
   const TARGET_PEAK_DB=-1.0;
   const masterMetricsCore=()=>window.CheerCompetitionMasterMetricsCore||null;
+  const masterExportBridgeCore=()=>window.CheerCompetitionMasterExportReadinessCore||null;
+  const masterInputCore=()=>window.CheerCompetitionMasterInputCore||null;
+  const masterReadinessCore=()=>window.CheerCompetitionMasterReadinessCore||null;
   async function ensureMasterMetricsCore(){
     const ready=masterMetricsCore();if(ready)return ready;
     if(masterMetricsLoadPromise)return masterMetricsLoadPromise;
@@ -12,6 +15,26 @@
       const script=document.createElement('script');script.src='competition-master-metrics-core.js?v=5.0p2t';script.dataset.competitionMasterMetrics='1';script.onload=()=>resolve(masterMetricsCore());script.onerror=()=>reject(new Error('Kilpailumasterin mittausydintä ei voitu ladata.'));document.head.appendChild(script);
     }).then(core=>{if(!core?.measurePostVoiceoverMix||!core?.toMasterInputMetrics)throw new Error('Kilpailumasterin mittausydin ei valmistunut oikein.');return core;}).catch(err=>{masterMetricsLoadPromise=null;throw err;});
     return masterMetricsLoadPromise;
+  }
+  function loadCoreScript(src,dataKey,resolveCore,errorText){
+    const ready=resolveCore();if(ready)return Promise.resolve(ready);
+    return new Promise((resolve,reject)=>{
+      const selector=`script[data-${dataKey}]`,existing=document.querySelector(selector);
+      if(existing){existing.addEventListener('load',()=>resolve(resolveCore()),{once:true});existing.addEventListener('error',()=>reject(new Error(errorText)),{once:true});return;}
+      const script=document.createElement('script');script.src=src;script.dataset[dataKey.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]='1';script.onload=()=>resolve(resolveCore());script.onerror=()=>reject(new Error(errorText));document.head.appendChild(script);
+    });
+  }
+  async function ensureMasterReadinessCores(){
+    if(masterExportBridgeCore()?.buildExportReadiness&&masterInputCore()?.buildCompetitionMasterInput&&masterReadinessCore()?.buildCompetitionMasterReadiness)return{bridge:masterExportBridgeCore(),input:masterInputCore(),readiness:masterReadinessCore()};
+    if(masterReadinessLoadPromise)return masterReadinessLoadPromise;
+    masterReadinessLoadPromise=(async()=>{
+      const input=await loadCoreScript('competition-master-input-core.js?v=5.0p2u','competition-master-input',masterInputCore,'Kilpailumasterin input-ydintä ei voitu ladata.');
+      const readiness=await loadCoreScript('competition-master-readiness-core.js?v=5.0p2u','competition-master-readiness',masterReadinessCore,'Kilpailumasterin readiness-ydintä ei voitu ladata.');
+      const bridge=await loadCoreScript('competition-master-export-readiness-core.js?v=5.0p2u','competition-master-export-readiness',masterExportBridgeCore,'Kilpailumasterin export-readiness-siltaa ei voitu ladata.');
+      if(!input?.buildCompetitionMasterInput||!input?.toCompetitionMasterReadinessInput||!readiness?.buildCompetitionMasterReadiness||!bridge?.buildExportReadiness)throw new Error('Kilpailumasterin readiness-ketju ei valmistunut oikein.');
+      return{bridge,input,readiness};
+    })().catch(err=>{masterReadinessLoadPromise=null;throw err;});
+    return masterReadinessLoadPromise;
   }
   function ensure(){if(!state.audioTimeline)state.audioTimeline={clips:[],zoom:1,snap:'beat'};state.audioTimeline.clips=Array.isArray(state.audioTimeline.clips)?state.audioTimeline.clips:[];if(!state.mixSettings)state.mixSettings={autoDuck:true,duckDb:-7,duckAttack:.08,duckRelease:.18}}
   function trackFor(c){return(state.tracks||[]).find(t=>t.name===c.sourceName)}
@@ -41,6 +64,14 @@
     lastCompetitionMasterMetrics=metrics;
     return{measurement,metrics};
   }
+  function evaluateCompetitionMasterReadiness(metrics){
+    const bridge=masterExportBridgeCore(),input=masterInputCore(),readiness=masterReadinessCore();
+    if(!bridge?.buildExportReadiness||!input?.buildCompetitionMasterInput||!readiness?.buildCompetitionMasterReadiness){lastCompetitionMasterInput=null;lastCompetitionMasterReadiness=null;return null;}
+    const result=bridge.buildExportReadiness({metrics,state,masterInputCore:input,readinessCore:readiness});
+    lastCompetitionMasterInput=result?.masterInput||null;
+    lastCompetitionMasterReadiness=result?.readiness||null;
+    return result;
+  }
   function applyMasterHeadroom(buffer,stats,targetDb=TARGET_PEAK_DB){
     if(!Number.isFinite(stats?.peakDb)||stats.peak<=0||stats.peakDb<=targetDb)return{gain:1,gainDb:0,applied:false};
     const gain=Math.pow(10,(targetDb-stats.peakDb)/20),channels=Math.min(2,buffer.numberOfChannels);
@@ -54,18 +85,19 @@
     exporting=true;const btn=q('#btnExportWav');if(btn)btn.disabled=true;window.cheerTimelineAudioEngine?.stop?.();q('#audioPlayer')?.pause();
     try{
       setStatus('Valmistellaan 48 kHz / 24-bit lossless-masteria…',1);
-      await ensureMasterMetricsCore();
-      const rendered=await window.CheerOfflineRenderer.renderProject(state,progress),competition=measureCompetitionMaster(rendered),before=analyzeBuffer(rendered);
+      await ensureMasterMetricsCore();await ensureMasterReadinessCores();
+      const rendered=await window.CheerOfflineRenderer.renderProject(state,progress),competition=measureCompetitionMaster(rendered),readinessResult=evaluateCompetitionMasterReadiness(competition?.metrics),before=analyzeBuffer(rendered);
       const headroom=applyMasterHeadroom(rendered,before,TARGET_PEAK_DB),after=analyzeBuffer(rendered);
       setStatus(headroom.applied?`Master-headroom: ${before.peakDb.toFixed(1)} → ${after.peakDb.toFixed(1)} dBFS (${headroom.gainDb.toFixed(1)} dB)…`:`Peak ${after.peakDb.toFixed(1)} dBFS — headroomia ei tarvinnut muuttaa.`,93);
       const wav=window.CheerWav24.fromAudioBuffer(rendered);downloadArrayBuffer(wav,`${safeName()}.wav`);
       const gainInfo=headroom.applied?` · master gain ${headroom.gainDb.toFixed(1)} dB`:'';
       const competitionInfo=competition?.metrics?` · pre-master TP ${competition.metrics.truePeakDbtp?.toFixed?.(1)??competition.metrics.truePeakDbtp} dBTP · LRA ${competition.metrics.loudnessRangeLu?.toFixed?.(1)??competition.metrics.loudnessRangeLu} LU`:'';
-      setStatus(`Valmis: ${safeName()}.wav · 48 kHz · 24-bit PCM · stereo · peak ${after.peakDb.toFixed(1)} dBFS · RMS ${after.rmsDb.toFixed(1)} dBFS${gainInfo}${competitionInfo}`,100);
+      const readinessInfo=readinessResult?.readiness?` · kilpailumasteri ${readinessResult.readiness.status}`:readinessResult?.masterInput?.reason?` · kilpailumasteri ${readinessResult.masterInput.reason}`:'';
+      setStatus(`Valmis: ${safeName()}.wav · 48 kHz · 24-bit PCM · stereo · peak ${after.peakDb.toFixed(1)} dBFS · RMS ${after.rmsDb.toFixed(1)} dBFS${gainInfo}${competitionInfo}${readinessInfo}`,100);
     }catch(err){console.error(err);setStatus('Lossless WAV -vienti epäonnistui.',0);alert(`WAV-vienti epäonnistui: ${err?.message||err}`)}finally{exporting=false;if(btn)btn.disabled=false}
   }
-  function addUi(){if(q('#mixExport'))return;const host=q('#mixAssistant')||q('#audioWorkspace');if(!host)return;const panel=document.createElement('section');panel.id='mixExport';panel.className='mix-export';panel.innerHTML=`<div class="mix-export-top"><div><h3>Lossless master</h3><p>OfflineAudioContext renderöi koko aikajanan suoraan 48 kHz stereoksi. WAV kirjoitetaan 24-bit PCM:nä ilman häviöllistä välivaihetta. Kilpailumasterin pre-master-metriikat mitataan valmiista post-voiceover-miksistä ennen mahdollista −1 dBFS headroom-vaimennusta.</p></div><button id="btnExportWav" class="btn primary">⬇ Vie 24-bit WAV</button></div><div class="mix-export-progress-shell"><div id="mixExportProgress" class="mix-export-progress"></div></div><div id="mixExportStatus" class="mix-export-status">Valmis lossless-vientiin.</div>`;host.insertAdjacentElement('afterend',panel);q('#btnExportWav').addEventListener('click',exportWav)}
+  function addUi(){if(q('#mixExport'))return;const host=q('#mixAssistant')||q('#audioWorkspace');if(!host)return;const panel=document.createElement('section');panel.id='mixExport';panel.className='mix-export';panel.innerHTML=`<div class="mix-export-top"><div><h3>Lossless master</h3><p>OfflineAudioContext renderöi koko aikajanan suoraan 48 kHz stereoksi. WAV kirjoitetaan 24-bit PCM:nä ilman häviöllistä välivaihetta. Kilpailumasterin pre-master-metriikat mitataan valmiista post-voiceover-miksistä ennen mahdollista −1 dBFS headroom-vaimennusta ja arvioidaan ei-tuhoavalla readiness-ketjulla.</p></div><button id="btnExportWav" class="btn primary">⬇ Vie 24-bit WAV</button></div><div class="mix-export-progress-shell"><div id="mixExportProgress" class="mix-export-progress"></div></div><div id="mixExportStatus" class="mix-export-status">Valmis lossless-vientiin.</div>`;host.insertAdjacentElement('afterend',panel);q('#btnExportWav').addEventListener('click',exportWav)}
   const style=document.createElement('style');style.textContent=`.mix-export{margin-top:14px;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:12px;background:rgba(15,23,42,.42)}.mix-export-top{display:flex;justify-content:space-between;gap:16px;align-items:center}.mix-export h3{margin:0 0 4px}.mix-export p{margin:0;opacity:.75;max-width:820px}.mix-export-progress-shell{height:7px;margin-top:12px;border-radius:999px;overflow:hidden;background:rgba(148,163,184,.13)}.mix-export-progress{height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#38bdf8);transition:width .2s}.mix-export-status{margin-top:7px;font-size:.9rem;opacity:.8}@media(max-width:800px){.mix-export-top{align-items:flex-start;flex-direction:column}}`;document.head.appendChild(style);
-  function init(){ensure();addUi();window.cheerMixExport={exportWav,validate,analyzeBuffer,measureCompetitionMaster,applyMasterHeadroom,getLastCompetitionMasterMeasurement:()=>lastCompetitionMasterMeasurement,getLastCompetitionMasterMetrics:()=>lastCompetitionMasterMetrics}}
+  function init(){ensure();addUi();window.cheerMixExport={exportWav,validate,analyzeBuffer,measureCompetitionMaster,evaluateCompetitionMasterReadiness,applyMasterHeadroom,getLastCompetitionMasterMeasurement:()=>lastCompetitionMasterMeasurement,getLastCompetitionMasterMetrics:()=>lastCompetitionMasterMetrics,getLastCompetitionMasterInput:()=>lastCompetitionMasterInput,getLastCompetitionMasterReadiness:()=>lastCompetitionMasterReadiness}}
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
