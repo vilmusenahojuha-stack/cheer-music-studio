@@ -31,6 +31,19 @@
     if(!value||typeof value!=='object')return null;
     return {...value};
   }
+  function cloneRhythm(value){
+    if(!value||typeof value!=='object')return null;
+    return {
+      shape:value?.rhythm?.shape??value?.shape??null,
+      assignedCounts:value?.assignedCounts??value?.countLength??value?.counts??null,
+      requiredCounts:value?.requiredCounts??null,
+      attackCount:value?.rhythm?.attackCount??value?.attackCount??null,
+      releaseCount:value?.rhythm?.releaseCount??value?.releaseCount??null,
+      accentCounts:array(value?.rhythm?.accentCounts??value?.accentCounts).slice(),
+      estimatedSeconds:value?.estimatedSeconds??value?.durationSec??value?.speechWindow?.durationSeconds??null,
+      availableSeconds:value?.availableSeconds??null
+    };
+  }
   function buildVoiceoverCompetitionPackage(input={}){
     input=input||{};
     const base={version:1,kind:'cheer-voiceover-competition-package',status:'blocked',reason:'voiceover-plans-required',nonDestructive:true,executable:false,safePreviewOnly:true,selected:[],deferred:[],riskFlags:[],summary:{selected:0,deferred:0,ready:0,review:0}};
@@ -82,7 +95,7 @@
         score:Number(choice?.score)||0,
         status:ready?'preview-ready':'review-required',
         placement:slot?{eight:slot.eight??null,count:slot.count??null}:null,
-        rhythm:rhythmItem?{countLength:rhythmItem.countLength??rhythmItem.counts??null,durationSec:rhythmItem.durationSec??rhythmItem.speechWindow?.durationSeconds??null}:null,
+        rhythm:cloneRhythm(rhythmItem),
         ducking:duckingItem?{
           eight:duckingItem.eight??slot?.eight??null,
           musicGainDb:duckingItem.musicGainDb??duckingItem.duckDb??null,
@@ -124,7 +137,7 @@
     };
   }
 
-  const api={REQUIRED_KINDS,planItems,buildVoiceoverCompetitionPackage};
+  const api={REQUIRED_KINDS,planItems,cloneRhythm,buildVoiceoverCompetitionPackage};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerVoiceoverCompetitionPackageCore=api;
 })();
