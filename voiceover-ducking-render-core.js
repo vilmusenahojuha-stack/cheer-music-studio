@@ -57,8 +57,39 @@
     for(const env of envelopes){for(const t of [env.duckStart,env.speechStart,env.speechEnd,env.duckEnd])if(t>start&&t<end)times.add(t);}
     return [...times].sort((a,b)=>a-b).map(time=>[time,Number(Math.min(1,...envelopes.map(env=>gainAt(env,time))).toFixed(6))]);
   }
+  function previewPackage(project,plan){
+    return plan?.voiceoverCompetitionPackage||project?.voiceoverCompetitionPackage||project?.voiceover?.competitionPackage||null;
+  }
+  function activateCompetitionPackageForPreview(project,plan){
+    if(!project||typeof project!=='object')return project;
+    const pkg=previewPackage(project,plan);
+    const bpm=finite(pkg?.bpm,0);
+    if(!pkg||pkg.kind!=='cheer-voiceover-competition-package'||!(bpm>0)||!normalizePackageReservations(pkg).length)return project;
+    return {
+      ...project,
+      mixSettings:{...(project.mixSettings||{}),voiceoverCompetitionPackage:pkg},
+      voiceoverPreviewActivation:{active:true,source:plan?.voiceoverCompetitionPackage?'timeline-plan':project?.voiceoverCompetitionPackage?'project':'project-voiceover',nonDestructive:true,safePreviewOnly:true}
+    };
+  }
+  function installOfflineRendererActivation(root){
+    const host=root||((typeof window!=='undefined')?window:null);
+    const renderer=host?.CheerOfflineRenderer;
+    if(!renderer||renderer.__voiceoverCompetitionActivationInstalled)return false;
+    const originalRender=renderer.renderTimelinePlan;
+    const originalPreview=renderer.previewTimelinePlan;
+    if(typeof originalRender!=='function'||typeof originalPreview!=='function')return false;
+    renderer.renderTimelinePlan=function(project,plan,onProgress){return originalRender.call(this,activateCompetitionPackageForPreview(project,plan),plan,onProgress);};
+    renderer.previewTimelinePlan=function(project,plan,onProgress,options){return originalPreview.call(this,activateCompetitionPackageForPreview(project,plan),plan,onProgress,options);};
+    renderer.__voiceoverCompetitionActivationInstalled=true;
+    return true;
+  }
 
-  const api={dbToGain,secondsForCount,normalizePackageReservations,envelopeForReservation,automationPointsForClip};
+  const api={dbToGain,secondsForCount,normalizePackageReservations,envelopeForReservation,automationPointsForClip,previewPackage,activateCompetitionPackageForPreview,installOfflineRendererActivation};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
-  if(typeof window!=='undefined')window.CheerVoiceoverDuckingRenderCore=api;
+  if(typeof window!=='undefined'){
+    window.CheerVoiceoverDuckingRenderCore=api;
+    const install=()=>installOfflineRendererActivation(window);
+    if(typeof document!=='undefined'&&document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});
+    else setTimeout(install,0);
+  }
 })();
