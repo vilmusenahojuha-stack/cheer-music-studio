@@ -45,4 +45,47 @@ const pkg={
   assert(points.some(([t])=>Math.abs(t-2.2)<1e-9));
 }
 
+{
+  const project={mixSettings:{autoDuck:true},voiceoverCompetitionPackage:pkg};
+  const activated=render.activateCompetitionPackageForPreview(project,{status:'preview-ready'});
+  assert.notEqual(activated,project,'preview activation must use a non-destructive project wrapper');
+  assert.equal(project.mixSettings.voiceoverCompetitionPackage,undefined,'stored project mix settings must remain untouched');
+  assert.equal(activated.mixSettings.voiceoverCompetitionPackage,pkg,'ready competition package must reach preview DSP settings');
+  assert.deepEqual(activated.mixSettings,{autoDuck:true,voiceoverCompetitionPackage:pkg},'existing mix settings must be preserved');
+  assert.deepEqual(activated.voiceoverPreviewActivation,{active:true,source:'project',nonDestructive:true,safePreviewOnly:true});
+}
+
+{
+  const reviewOnly={...pkg,selected:pkg.selected.map(item=>({...item,status:'review-required'}))};
+  const project={mixSettings:{autoDuck:true},voiceoverCompetitionPackage:reviewOnly};
+  assert.equal(render.activateCompetitionPackageForPreview(project,{}),project,'package without preview-ready reservations must not activate');
+}
+
+{
+  const planPkg={...pkg,bpm:130,selected:[{...pkg.selected[0],slotId:'plan-ready'}]};
+  const project={mixSettings:{autoDuck:true},voiceoverCompetitionPackage:pkg};
+  const activated=render.activateCompetitionPackageForPreview(project,{voiceoverCompetitionPackage:planPkg});
+  assert.equal(activated.mixSettings.voiceoverCompetitionPackage,planPkg,'timeline-plan package must override project package for that preview only');
+  assert.equal(activated.voiceoverPreviewActivation.source,'timeline-plan');
+  assert.equal(project.mixSettings.voiceoverCompetitionPackage,undefined);
+}
+
+{
+  const seen=[];
+  const renderer={
+    renderTimelinePlan(project){seen.push(['render',project]);return project;},
+    previewTimelinePlan(project){seen.push(['preview',project]);return project;}
+  };
+  const root={CheerOfflineRenderer:renderer};
+  assert.equal(render.installOfflineRendererActivation(root),true,'offline renderer must accept competition preview activation once');
+  assert.equal(render.installOfflineRendererActivation(root),false,'offline renderer activation must not double-wrap');
+  const project={mixSettings:{autoDuck:true},voiceoverCompetitionPackage:pkg};
+  const previewed=renderer.previewTimelinePlan(project,{status:'preview-ready'});
+  const rendered=renderer.renderTimelinePlan(project,{status:'preview-ready'});
+  assert.equal(previewed.mixSettings.voiceoverCompetitionPackage,pkg);
+  assert.equal(rendered.mixSettings.voiceoverCompetitionPackage,pkg);
+  assert.equal(project.mixSettings.voiceoverCompetitionPackage,undefined,'renderer integration must not mutate the stored project');
+  assert.equal(seen.length,2);
+}
+
 console.log('voiceover ducking render core tests passed');
