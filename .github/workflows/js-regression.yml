@@ -29,6 +29,10 @@ jobs:
         run: node tests/audio-timing-core.test.js
       - name: Shared DSP regression tests
         run: node tests/mix-dsp-core.test.js
+      - name: Voiceover competition package tests
+        run: node tests/voiceover-competition-package-core.test.js
+      - name: Voiceover ducking render tests
+        run: node tests/voiceover-ducking-render-core.test.js
       - name: Pitch-preserving time-stretch tests
         run: node tests/time-stretch-core.test.js
       - name: Signalsmith HQ adapter tests
