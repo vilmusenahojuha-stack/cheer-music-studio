@@ -1,8 +1,18 @@
 (()=>{
-  const q=s=>document.querySelector(s);let exporting=false,lastCompetitionMasterMeasurement=null,lastCompetitionMasterMetrics=null;
+  const q=s=>document.querySelector(s);let exporting=false,lastCompetitionMasterMeasurement=null,lastCompetitionMasterMetrics=null,masterMetricsLoadPromise=null;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));const db=v=>v>0?20*Math.log10(v):-Infinity;
   const TARGET_PEAK_DB=-1.0;
   const masterMetricsCore=()=>window.CheerCompetitionMasterMetricsCore||null;
+  async function ensureMasterMetricsCore(){
+    const ready=masterMetricsCore();if(ready)return ready;
+    if(masterMetricsLoadPromise)return masterMetricsLoadPromise;
+    masterMetricsLoadPromise=new Promise((resolve,reject)=>{
+      const existing=document.querySelector('script[data-competition-master-metrics]');
+      if(existing){existing.addEventListener('load',()=>resolve(masterMetricsCore()),{once:true});existing.addEventListener('error',()=>reject(new Error('Kilpailumasterin mittausydintä ei voitu ladata.')),{once:true});return;}
+      const script=document.createElement('script');script.src='competition-master-metrics-core.js?v=5.0p2t';script.dataset.competitionMasterMetrics='1';script.onload=()=>resolve(masterMetricsCore());script.onerror=()=>reject(new Error('Kilpailumasterin mittausydintä ei voitu ladata.'));document.head.appendChild(script);
+    }).then(core=>{if(!core?.measurePostVoiceoverMix||!core?.toMasterInputMetrics)throw new Error('Kilpailumasterin mittausydin ei valmistunut oikein.');return core;}).catch(err=>{masterMetricsLoadPromise=null;throw err;});
+    return masterMetricsLoadPromise;
+  }
   function ensure(){if(!state.audioTimeline)state.audioTimeline={clips:[],zoom:1,snap:'beat'};state.audioTimeline.clips=Array.isArray(state.audioTimeline.clips)?state.audioTimeline.clips:[];if(!state.mixSettings)state.mixSettings={autoDuck:true,duckDb:-7,duckAttack:.08,duckRelease:.18}}
   function trackFor(c){return(state.tracks||[]).find(t=>t.name===c.sourceName)}
   function safeName(){return(state.projectName||'cheer-mix').trim().replace(/[^a-z0-9åäö_-]+/gi,'-').replace(/^-+|-+$/g,'')||'cheer-mix'}
@@ -44,6 +54,7 @@
     exporting=true;const btn=q('#btnExportWav');if(btn)btn.disabled=true;window.cheerTimelineAudioEngine?.stop?.();q('#audioPlayer')?.pause();
     try{
       setStatus('Valmistellaan 48 kHz / 24-bit lossless-masteria…',1);
+      await ensureMasterMetricsCore();
       const rendered=await window.CheerOfflineRenderer.renderProject(state,progress),competition=measureCompetitionMaster(rendered),before=analyzeBuffer(rendered);
       const headroom=applyMasterHeadroom(rendered,before,TARGET_PEAK_DB),after=analyzeBuffer(rendered);
       setStatus(headroom.applied?`Master-headroom: ${before.peakDb.toFixed(1)} → ${after.peakDb.toFixed(1)} dBFS (${headroom.gainDb.toFixed(1)} dB)…`:`Peak ${after.peakDb.toFixed(1)} dBFS — headroomia ei tarvinnut muuttaa.`,93);
