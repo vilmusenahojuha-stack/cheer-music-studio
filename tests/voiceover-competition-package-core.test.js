@@ -8,8 +8,8 @@ function validInput(){
       {id:'vo-ending',sectionId:'ending',sectionType:'ending',eight:17,count:1,risks:[]}
     ]},
     rhythmPlan:{kind:'cheer-voiceover-rhythm-plan',status:'preview-ready',bpm:150,riskFlags:[],items:[
-      {slotId:'vo-intro',countLength:2,durationSec:0.8,risks:[]},
-      {slotId:'vo-ending',countLength:4,durationSec:1.6,risks:[]}
+      {slotId:'vo-intro',assignedCounts:2,requiredCounts:2,estimatedSeconds:.8,availableSeconds:.8,rhythm:{shape:'hit',attackCount:1,releaseCount:2,accentCounts:[1]},risks:[]},
+      {slotId:'vo-ending',assignedCounts:4,requiredCounts:4,estimatedSeconds:1.6,availableSeconds:1.6,rhythm:{shape:'phrase',attackCount:1,releaseCount:4,accentCounts:[1,3]},risks:[]}
     ]},
     duckingPlan:{kind:'cheer-voiceover-ducking-plan',status:'preview-ready',bpm:150,riskFlags:[],reservations:[
       {slotId:'vo-intro',eight:1,duckDb:-4,attackCounts:0.5,releaseCounts:0.5,speechWindow:{startCount:1,endCount:3},duckWindow:{startCount:0.5,endCount:3.5},risks:[]},
@@ -30,6 +30,13 @@ assert.equal(plan.summary.selected,2);
 assert.equal(plan.summary.ready,2);
 assert.equal(plan.selected[0].slotId,'vo-ending');
 assert.equal(plan.selected[0].role,'final-callout');
+assert.equal(plan.selected[0].rhythm.shape,'phrase');
+assert.equal(plan.selected[0].rhythm.assignedCounts,4);
+assert.equal(plan.selected[0].rhythm.requiredCounts,4);
+assert.equal(plan.selected[0].rhythm.estimatedSeconds,1.6);
+assert.deepEqual(plan.selected[0].rhythm.accentCounts,[1,3]);
+assert.equal(plan.selected[1].rhythm.shape,'hit');
+assert.equal(plan.selected[1].rhythm.assignedCounts,2);
 assert.equal(plan.selected[0].ducking.musicGainDb,-6);
 assert.equal(plan.selected[0].ducking.eight,17);
 assert.deepEqual(plan.selected[0].ducking.speechWindow,{startCount:1,endCount:5});
@@ -39,13 +46,19 @@ assert.equal(plan.nonDestructive,true);
 assert.equal(plan.executable,false);
 assert.equal(plan.safePreviewOnly,true);
 
-// Backward compatibility: older hand-built plans may still expose ducking items.
+// Backward compatibility: older hand-built rhythm and ducking plans still map into the package.
 let legacy=validInput();
+legacy.rhythmPlan.items=[
+  {slotId:'vo-intro',countLength:2,durationSec:.8,shape:'hit',risks:[]},
+  {slotId:'vo-ending',countLength:4,durationSec:1.6,shape:'phrase',risks:[]}
+];
 legacy.duckingPlan.items=legacy.duckingPlan.reservations;
 delete legacy.duckingPlan.reservations;
 plan=core.buildVoiceoverCompetitionPackage(legacy);
 assert.equal(plan.status,'preview-ready');
 assert.equal(plan.selected.find(x=>x.slotId==='vo-intro').ducking.musicGainDb,-4);
+assert.equal(plan.selected.find(x=>x.slotId==='vo-intro').rhythm.assignedCounts,2);
+assert.equal(plan.selected.find(x=>x.slotId==='vo-intro').rhythm.shape,'hit');
 
 let input=validInput();
 input.conflictPlan={kind:'cheer-voiceover-fx-conflict-plan',status:'review-required',riskFlags:['fx-review'],conflicts:[
