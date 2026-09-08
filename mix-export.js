@@ -1,8 +1,10 @@
 (()=>{
-  const q=s=>document.querySelector(s);let exporting=false,lastCompetitionMasterMeasurement=null,lastCompetitionMasterMetrics=null,lastCompetitionMasterInput=null,lastCompetitionMasterReadiness=null,lastCompetitionMasterPreview=null,lastCompetitionMasterFinalCheck=null,masterMetricsLoadPromise=null,masterReadinessLoadPromise=null;
+  const q=s=>document.querySelector(s);let exporting=false,lastCompetitionMasterMeasurement=null,lastCompetitionMasterMetrics=null,lastCompetitionMasterClarity=null,lastCompetitionMasterInput=null,lastCompetitionMasterReadiness=null,lastCompetitionMasterPreview=null,lastCompetitionMasterFinalCheck=null,masterMetricsLoadPromise=null,masterReadinessLoadPromise=null,masterClarityLoadPromise=null;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));const db=v=>v>0?20*Math.log10(v):-Infinity;
   const TARGET_PEAK_DB=-1.0;
   const masterMetricsCore=()=>window.CheerCompetitionMasterMetricsCore||null;
+  const masterClarityCore=()=>window.CheerCompetitionMasterClarityMetricsCore||null;
+  const masterClarityWindowsCore=()=>window.CheerCompetitionMasterClarityWindowsCore||null;
   const masterExportBridgeCore=()=>window.CheerCompetitionMasterExportReadinessCore||null;
   const masterInputCore=()=>window.CheerCompetitionMasterInputCore||null;
   const masterReadinessCore=()=>window.CheerCompetitionMasterReadinessCore||null;
@@ -25,6 +27,17 @@
       if(existing){existing.addEventListener('load',()=>resolve(resolveCore()),{once:true});existing.addEventListener('error',()=>reject(new Error(errorText)),{once:true});return;}
       const script=document.createElement('script');script.src=src;script.dataset[dataKey.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]='1';script.onload=()=>resolve(resolveCore());script.onerror=()=>reject(new Error(errorText));document.head.appendChild(script);
     });
+  }
+  async function ensureMasterClarityCores(){
+    if(masterClarityCore()?.measureCompetitionClarity&&masterClarityCore()?.mergeIntoMasterMetrics&&masterClarityWindowsCore()?.buildCompetitionClarityWindows)return{clarity:masterClarityCore(),windows:masterClarityWindowsCore()};
+    if(masterClarityLoadPromise)return masterClarityLoadPromise;
+    masterClarityLoadPromise=(async()=>{
+      const clarity=await loadCoreScript('competition-master-clarity-metrics-core.js?v=5.0p2x','competition-master-clarity-metrics',masterClarityCore,'Kilpailumasterin clarity-mittausydintä ei voitu ladata.');
+      const windows=await loadCoreScript('competition-master-clarity-windows-core.js?v=5.0p2x','competition-master-clarity-windows',masterClarityWindowsCore,'Kilpailumasterin clarity-ikkunoita ei voitu ladata.');
+      if(!clarity?.measureCompetitionClarity||!clarity?.mergeIntoMasterMetrics||!windows?.buildCompetitionClarityWindows)throw new Error('Kilpailumasterin clarity-ketju ei valmistunut oikein.');
+      return{clarity,windows};
+    })().catch(err=>{masterClarityLoadPromise=null;throw err;});
+    return masterClarityLoadPromise;
   }
   async function ensureMasterReadinessCores(){
     if(masterExportBridgeCore()?.buildExportReadiness&&masterInputCore()?.buildCompetitionMasterInput&&masterReadinessCore()?.buildCompetitionMasterReadiness&&masterPreviewCore()?.buildCompetitionMasterPreview&&masterFinalCheckCore()?.buildCompetitionMasterFinalCheck)return{bridge:masterExportBridgeCore(),input:masterInputCore(),readiness:masterReadinessCore(),preview:masterPreviewCore(),finalCheck:masterFinalCheckCore()};
@@ -68,6 +81,16 @@
     lastCompetitionMasterMetrics=metrics;
     return{measurement,metrics};
   }
+  function measureCompetitionClarity(buffer,metrics){
+    const clarity=masterClarityCore(),windows=masterClarityWindowsCore();
+    if(!clarity?.measureCompetitionClarity||!clarity?.mergeIntoMasterMetrics||!windows?.buildCompetitionClarityWindows){lastCompetitionMasterClarity=null;return metrics;}
+    const input=windows.buildCompetitionClarityWindows(state,window.CheerFxRenderCore||null);
+    const measurement=clarity.measureCompetitionClarity(buffer,input);
+    lastCompetitionMasterClarity=measurement;
+    const merged=clarity.mergeIntoMasterMetrics(metrics,measurement);
+    lastCompetitionMasterMetrics=merged;
+    return merged;
+  }
   function evaluateCompetitionMasterReadiness(metrics){
     const bridge=masterExportBridgeCore(),input=masterInputCore(),readiness=masterReadinessCore(),preview=masterPreviewCore(),finalCheckCore=masterFinalCheckCore();
     if(!bridge?.buildExportReadiness||!input?.buildCompetitionMasterInput||!readiness?.buildCompetitionMasterReadiness||!preview?.buildCompetitionMasterPreview||!finalCheckCore?.buildCompetitionMasterFinalCheck){lastCompetitionMasterInput=null;lastCompetitionMasterReadiness=null;lastCompetitionMasterPreview=null;lastCompetitionMasterFinalCheck=null;return null;}
@@ -91,21 +114,24 @@
     exporting=true;const btn=q('#btnExportWav');if(btn)btn.disabled=true;window.cheerTimelineAudioEngine?.stop?.();q('#audioPlayer')?.pause();
     try{
       setStatus('Valmistellaan 48 kHz / 24-bit lossless-masteria…',1);
-      await ensureMasterMetricsCore();await ensureMasterReadinessCores();
-      const rendered=await window.CheerOfflineRenderer.renderProject(state,progress),competition=measureCompetitionMaster(rendered),readinessResult=evaluateCompetitionMasterReadiness(competition?.metrics),before=analyzeBuffer(rendered);
+      await ensureMasterMetricsCore();await ensureMasterClarityCores();await ensureMasterReadinessCores();
+      const rendered=await window.CheerOfflineRenderer.renderProject(state,progress),competition=measureCompetitionMaster(rendered);
+      if(competition?.metrics)competition.metrics=measureCompetitionClarity(rendered,competition.metrics);
+      const readinessResult=evaluateCompetitionMasterReadiness(competition?.metrics),before=analyzeBuffer(rendered);
       const headroom=applyMasterHeadroom(rendered,before,TARGET_PEAK_DB),after=analyzeBuffer(rendered);
       setStatus(headroom.applied?`Master-headroom: ${before.peakDb.toFixed(1)} → ${after.peakDb.toFixed(1)} dBFS (${headroom.gainDb.toFixed(1)} dB)…`:`Peak ${after.peakDb.toFixed(1)} dBFS — headroomia ei tarvinnut muuttaa.`,93);
       const wav=window.CheerWav24.fromAudioBuffer(rendered);downloadArrayBuffer(wav,`${safeName()}.wav`);
       const gainInfo=headroom.applied?` · master gain ${headroom.gainDb.toFixed(1)} dB`:'';
       const competitionInfo=competition?.metrics?` · pre-master TP ${competition.metrics.truePeakDbtp?.toFixed?.(1)??competition.metrics.truePeakDbtp} dBTP · LRA ${competition.metrics.loudnessRangeLu?.toFixed?.(1)??competition.metrics.loudnessRangeLu} LU`:'';
+      const clarityInfo=lastCompetitionMasterClarity?` · voice clarity ${lastCompetitionMasterClarity.voiceoverClarityScore?.toFixed?.(2)??'—'} · FX clarity ${lastCompetitionMasterClarity.fxClarityScore?.toFixed?.(2)??'—'}`:'';
       const readinessInfo=readinessResult?.readiness?` · kilpailumasteri ${readinessResult.readiness.status}`:readinessResult?.masterInput?.reason?` · kilpailumasteri ${readinessResult.masterInput.reason}`:'';
       const previewInfo=readinessResult?.preview?` · preview ${readinessResult.preview.status}`:'';
       const finalCheckInfo=readinessResult?.finalCheck?` · final-check ${readinessResult.finalCheck.status}`:'';
-      setStatus(`Valmis: ${safeName()}.wav · 48 kHz · 24-bit PCM · stereo · peak ${after.peakDb.toFixed(1)} dBFS · RMS ${after.rmsDb.toFixed(1)} dBFS${gainInfo}${competitionInfo}${readinessInfo}${previewInfo}${finalCheckInfo}`,100);
+      setStatus(`Valmis: ${safeName()}.wav · 48 kHz · 24-bit PCM · stereo · peak ${after.peakDb.toFixed(1)} dBFS · RMS ${after.rmsDb.toFixed(1)} dBFS${gainInfo}${competitionInfo}${clarityInfo}${readinessInfo}${previewInfo}${finalCheckInfo}`,100);
     }catch(err){console.error(err);setStatus('Lossless WAV -vienti epäonnistui.',0);alert(`WAV-vienti epäonnistui: ${err?.message||err}`)}finally{exporting=false;if(btn)btn.disabled=false}
   }
-  function addUi(){if(q('#mixExport'))return;const host=q('#mixAssistant')||q('#audioWorkspace');if(!host)return;const panel=document.createElement('section');panel.id='mixExport';panel.className='mix-export';panel.innerHTML=`<div class="mix-export-top"><div><h3>Lossless master</h3><p>OfflineAudioContext renderöi koko aikajanan suoraan 48 kHz stereoksi. WAV kirjoitetaan 24-bit PCM:nä ilman häviöllistä välivaihetta. Kilpailumasterin pre-master-metriikat mitataan valmiista post-voiceover-miksistä ennen mahdollista −1 dBFS headroom-vaimennusta ja arvioidaan ei-tuhoavalla readiness-, preview- ja final-check-ketjulla.</p></div><button id="btnExportWav" class="btn primary">⬇ Vie 24-bit WAV</button></div><div class="mix-export-progress-shell"><div id="mixExportProgress" class="mix-export-progress"></div></div><div id="mixExportStatus" class="mix-export-status">Valmis lossless-vientiin.</div>`;host.insertAdjacentElement('afterend',panel);q('#btnExportWav').addEventListener('click',exportWav)}
+  function addUi(){if(q('#mixExport'))return;const host=q('#mixAssistant')||q('#audioWorkspace');if(!host)return;const panel=document.createElement('section');panel.id='mixExport';panel.className='mix-export';panel.innerHTML=`<div class="mix-export-top"><div><h3>Lossless master</h3><p>OfflineAudioContext renderöi koko aikajanan suoraan 48 kHz stereoksi. WAV kirjoitetaan 24-bit PCM:nä ilman häviöllistä välivaihetta. Kilpailumasterin pre-master-metriikat sekä voiceover/FX-selkeys mitataan valmiista post-voiceover-miksistä ennen mahdollista −1 dBFS headroom-vaimennusta ja arvioidaan ei-tuhoavalla readiness-, preview- ja final-check-ketjulla.</p></div><button id="btnExportWav" class="btn primary">⬇ Vie 24-bit WAV</button></div><div class="mix-export-progress-shell"><div id="mixExportProgress" class="mix-export-progress"></div></div><div id="mixExportStatus" class="mix-export-status">Valmis lossless-vientiin.</div>`;host.insertAdjacentElement('afterend',panel);q('#btnExportWav').addEventListener('click',exportWav)}
   const style=document.createElement('style');style.textContent=`.mix-export{margin-top:14px;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:12px;background:rgba(15,23,42,.42)}.mix-export-top{display:flex;justify-content:space-between;gap:16px;align-items:center}.mix-export h3{margin:0 0 4px}.mix-export p{margin:0;opacity:.75;max-width:820px}.mix-export-progress-shell{height:7px;margin-top:12px;border-radius:999px;overflow:hidden;background:rgba(148,163,184,.13)}.mix-export-progress{height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#38bdf8);transition:width .2s}.mix-export-status{margin-top:7px;font-size:.9rem;opacity:.8}@media(max-width:800px){.mix-export-top{align-items:flex-start;flex-direction:column}}`;document.head.appendChild(style);
-  function init(){ensure();addUi();window.cheerMixExport={exportWav,validate,analyzeBuffer,measureCompetitionMaster,evaluateCompetitionMasterReadiness,applyMasterHeadroom,getLastCompetitionMasterMeasurement:()=>lastCompetitionMasterMeasurement,getLastCompetitionMasterMetrics:()=>lastCompetitionMasterMetrics,getLastCompetitionMasterInput:()=>lastCompetitionMasterInput,getLastCompetitionMasterReadiness:()=>lastCompetitionMasterReadiness,getLastCompetitionMasterPreview:()=>lastCompetitionMasterPreview,getLastCompetitionMasterFinalCheck:()=>lastCompetitionMasterFinalCheck}}
+  function init(){ensure();addUi();window.cheerMixExport={exportWav,validate,analyzeBuffer,measureCompetitionMaster,measureCompetitionClarity,evaluateCompetitionMasterReadiness,applyMasterHeadroom,getLastCompetitionMasterMeasurement:()=>lastCompetitionMasterMeasurement,getLastCompetitionMasterMetrics:()=>lastCompetitionMasterMetrics,getLastCompetitionMasterClarity:()=>lastCompetitionMasterClarity,getLastCompetitionMasterInput:()=>lastCompetitionMasterInput,getLastCompetitionMasterReadiness:()=>lastCompetitionMasterReadiness,getLastCompetitionMasterPreview:()=>lastCompetitionMasterPreview,getLastCompetitionMasterFinalCheck:()=>lastCompetitionMasterFinalCheck}}
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
