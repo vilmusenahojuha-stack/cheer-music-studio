@@ -33,7 +33,8 @@
       return copy;
     });
     const musicDuration=musicClips.reduce((m,c)=>Math.max(m,clipEnd(c)),0);
-    const voiceClips=(project.audioTimeline?.clips||[]).filter(c=>c?.type==='voice').map((clip,index)=>{
+    const competitionVoiceoverActive=project.mixSettings?.voiceoverCompetitionPackage?.kind==='cheer-voiceover-competition-package';
+    const voiceClips=(competitionVoiceoverActive?(project.audioTimeline?.clips||[]):[]).filter(c=>c?.type==='voice').map((clip,index)=>{
       const copy=clonePlain(clip)||{};
       if(!copy.id)copy.id=`smartmix-voice-${index+1}`;
       if(!copy.sourceName)throw new Error('Smart Mix preview -voiceoverilta puuttuu sourceName.');
