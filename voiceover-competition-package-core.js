@@ -109,6 +109,7 @@
       kind:'cheer-voiceover-competition-package',
       status,
       reason:null,
+      bpm:plans.ducking.bpm??plans.rhythm.bpm??null,
       nonDestructive:true,
       executable:false,
       safePreviewOnly:true,
