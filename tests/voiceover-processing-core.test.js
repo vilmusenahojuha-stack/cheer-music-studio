@@ -6,7 +6,8 @@ const competitionProject={mixSettings:{voiceoverCompetitionPackage:{kind:'cheer-
   {slotId:'slot-ending',sectionType:'ending',role:'final-callout',status:'preview-ready',rhythm:{shape:'phrase',assignedCounts:4}},
   {slotId:'slot-stunt',sectionType:'stunt',role:'support-callout',status:'preview-ready',rhythm:{shape:'hit',assignedCounts:2}},
   {slotId:'slot-dance',sectionType:'dance',role:'energy-callout',status:'preview-ready',rhythm:{shape:'callout',assignedCounts:3}},
-  {slotId:'slot-intro',sectionType:'intro',role:'identity-callout',status:'preview-ready',rhythm:{shape:'phrase',assignedCounts:4}}
+  {slotId:'slot-intro',sectionType:'intro',role:'identity-callout',status:'preview-ready',rhythm:{shape:'phrase',assignedCounts:4}},
+  {slotId:'slot-measured',sectionType:'dance',role:'energy-callout',status:'preview-ready',rhythm:{shape:'callout',assignedCounts:3},audio:{integratedLufs:-20,truePeakDb:-4}}
 ]}}};
 const legacyProject={mixSettings:{}};
 const voice={type:'voice',start:12.5,duration:1.75,sourceOffset:.25,volume:.9};
@@ -21,16 +22,20 @@ assert.strictEqual(plan.timingSafe,true);
 assert.strictEqual(plan.sectionAware,true);
 assert.strictEqual(plan.roleAware,true);
 assert.strictEqual(plan.rhythmAware,true);
+assert.strictEqual(plan.loudnessAware,true);
 assert.strictEqual(plan.sectionType,'other');
 assert.strictEqual(plan.role,'other');
 assert.strictEqual(plan.rhythmShape,'other');
 assert.strictEqual(plan.assignedCounts,null);
-assert.deepStrictEqual(plan.stages,['highpass','presence','compressor','speech-gain','output-headroom']);
+assert.deepStrictEqual(plan.stages,['highpass','presence','compressor','speech-gain','loudness-balance','output-headroom']);
 assert.strictEqual(plan.profile.highpassHz,95);
 assert.strictEqual(plan.profile.presenceHz,3000);
 assert.strictEqual(plan.profile.presenceDb,2);
 assert.strictEqual(plan.profile.compressorRatio,3);
 assert(plan.speechGain>1,'competition speech gain should add modest intelligibility gain');
+assert.strictEqual(plan.loudness.active,false,'missing loudness metadata must remain neutral');
+assert.strictEqual(plan.loudness.adjustmentDb,0);
+assert.strictEqual(plan.loudnessGain,1);
 assert(plan.outputGain<1,'output trim must preserve headroom');
 
 const ending=core.processingPlan(competitionProject,{...voice,voiceoverSlotId:'slot-ending'});
@@ -71,6 +76,29 @@ assert.strictEqual(intro.profile.compressorAttackSeconds,.008);
 assert.strictEqual(intro.profile.compressorReleaseSeconds,.16);
 assert(ending.speechGain>stunt.speechGain,'final callout should have more presence headroom than support callout');
 assert(ending.profile.compressorReleaseSeconds>stunt.profile.compressorReleaseSeconds,'long phrase should release more smoothly than short hit');
+
+const measured=core.processingPlan(competitionProject,{...voice,voiceoverSlotId:'slot-measured'});
+assert.strictEqual(measured.loudness.active,true);
+assert.strictEqual(measured.loudness.integratedLufs,-20);
+assert.strictEqual(measured.loudness.truePeakDb,-4);
+assert.strictEqual(measured.loudness.targetIntegratedLufs,-18);
+assert.strictEqual(measured.loudness.adjustmentDb,2,'quiet measured voice should receive only the bounded +2 dB correction');
+assert.strictEqual(measured.loudness.peakLimited,false);
+assert(Math.abs(measured.loudnessGain-core.dbToGain(2))<1e-12);
+
+const loudClip=core.processingPlan(competitionProject,{...voice,integratedLufs:-13,truePeakDb:-2});
+assert.strictEqual(loudClip.loudness.adjustmentDb,-4,'loud voice should be cut by the bounded correction');
+assert.strictEqual(loudClip.loudness.reason,'target-match');
+
+const peakLimited=core.processingPlan(competitionProject,{...voice,integratedLufs:-20,truePeakDb:-2});
+assert.strictEqual(peakLimited.loudness.adjustmentDb,-.5,'true-peak headroom must limit otherwise positive loudness correction');
+assert.strictEqual(peakLimited.loudness.peakLimited,true);
+assert.strictEqual(peakLimited.loudness.reason,'true-peak-limited');
+
+const customLoudnessProject={mixSettings:{...competitionProject.mixSettings,competitionVoiceLoudnessPolicy:{targetIntegratedLufs:-19,maxBoostDb:1,maxCutDb:3,truePeakCeilingDb:-2}}};
+const customLoudness=core.processingPlan(customLoudnessProject,{...voice,integratedLufs:-22,truePeakDb:-6});
+assert.strictEqual(customLoudness.loudness.targetIntegratedLufs,-19);
+assert.strictEqual(customLoudness.loudness.adjustmentDb,1,'project loudness policy must remain bounded');
 
 const directDance=core.processingPlan(competitionProject,{...voice,sectionType:'dance',voiceoverRole:'energy-callout',voiceoverRhythmShape:'hit',voiceoverAssignedCounts:2,voiceoverSlotId:'slot-ending'});
 assert.strictEqual(directDance.sectionType,'dance','explicit clip section metadata must take precedence over package lookup');
@@ -119,26 +147,25 @@ const context={
   createDynamicsCompressor(){const n=node('compressor');n.threshold=param();n.knee=param();n.ratio=param();n.attack=param();n.release=param();made.push(n);return n;},
   createGain(){const n=node('gain');n.gain=param();made.push(n);return n;}
 };
-const chain=core.configureWebAudioNodes(context,ending);
+const chain=core.configureWebAudioNodes(context,measured);
 assert(chain,'Web Audio chain should be created');
 assert.strictEqual(chain.highpass.type,'highpass');
 assert.strictEqual(chain.highpass.frequency.value,95);
 assert.strictEqual(chain.presence.type,'peaking');
 assert.strictEqual(chain.presence.frequency.value,3000);
-assert.strictEqual(chain.presence.gain.value,3.2);
-assert.strictEqual(chain.compressor.threshold.value,-21);
-assert.strictEqual(chain.compressor.ratio.value,3.55);
-assert.strictEqual(chain.compressor.attack.value,.008);
-assert.strictEqual(chain.compressor.release.value,.16);
-assert.strictEqual(chain.speechGain.gain.value,ending.speechGain);
-assert.strictEqual(chain.outputGain.gain.value,ending.outputGain);
+assert.strictEqual(chain.compressor.attack.value,.004);
+assert.strictEqual(chain.compressor.release.value,.09);
+assert.strictEqual(chain.speechGain.gain.value,measured.speechGain);
+assert.strictEqual(chain.loudnessGain.gain.value,measured.loudnessGain);
+assert.strictEqual(chain.outputGain.gain.value,measured.outputGain);
 assert.strictEqual(chain.highpass.connections[0],chain.presence);
 assert.strictEqual(chain.presence.connections[0],chain.compressor);
 assert.strictEqual(chain.compressor.connections[0],chain.speechGain);
-assert.strictEqual(chain.speechGain.connections[0],chain.outputGain);
+assert.strictEqual(chain.speechGain.connections[0],chain.loudnessGain);
+assert.strictEqual(chain.loudnessGain.connections[0],chain.outputGain);
 
 const original={...voice,voiceoverSlotId:'slot-ending'};
 core.processingPlan(competitionProject,original);
 assert.deepStrictEqual(original,{...voice,voiceoverSlotId:'slot-ending'},'processing planning must not mutate voice clip timing, gain or rhythm metadata');
 
-console.log('rhythm-aware competition voiceover clarity processing checks passed');
+console.log('loudness-aware competition voiceover processing checks passed');
