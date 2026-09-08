@@ -18,8 +18,34 @@
     speechGainDb:1.5,
     outputHeadroomDb:-1
   });
+  const SECTION_PROFILES=Object.freeze({
+    intro:Object.freeze({id:'competition-voice-intro-v1',presenceDb:2.4,compressorThresholdDb:-19,compressorRatio:3,speechGainDb:1.8}),
+    dance:Object.freeze({id:'competition-voice-dance-v1',presenceDb:1.5,compressorThresholdDb:-16,compressorRatio:2.6,speechGainDb:1}),
+    stunt:Object.freeze({id:'competition-voice-stunt-v1',presenceDb:1.4,compressorThresholdDb:-16,compressorRatio:2.5,speechGainDb:1}),
+    basket:Object.freeze({id:'competition-voice-basket-v1',presenceDb:1.6,compressorThresholdDb:-17,compressorRatio:2.7,speechGainDb:1.1}),
+    pyramid:Object.freeze({id:'competition-voice-pyramid-v1',presenceDb:1.8,compressorThresholdDb:-18,compressorRatio:2.8,speechGainDb:1.2}),
+    ending:Object.freeze({id:'competition-voice-ending-v1',presenceDb:2.8,compressorThresholdDb:-20,compressorRatio:3.2,speechGainDb:2})
+  });
   function competitionVoiceoverActive(project){
     return project?.mixSettings?.voiceoverCompetitionPackage?.kind==='cheer-voiceover-competition-package';
+  }
+  function canonicalSectionType(value){
+    const key=String(value||'').trim().toLowerCase();
+    if(!key)return 'other';
+    if(key==='end'||key==='finale'||key==='finish')return 'ending';
+    if(key==='pyr')return 'pyramid';
+    return SECTION_PROFILES[key]?key:'other';
+  }
+  function selectedVoiceoverForClip(project,clip){
+    const selected=Array.isArray(project?.mixSettings?.voiceoverCompetitionPackage?.selected)?project.mixSettings.voiceoverCompetitionPackage.selected:[];
+    const ids=[clip?.voiceoverSlotId,clip?.slotId,clip?.competitionSlotId,clip?.id].filter(v=>v!=null&&String(v)!=='').map(String);
+    if(!ids.length)return null;
+    return selected.find(item=>ids.includes(String(item?.slotId??'')))||null;
+  }
+  function resolveSectionType(project,clip){
+    const direct=clip?.sectionType??clip?.cheerSectionType??clip?.voiceoverSectionType;
+    if(direct!=null&&String(direct).trim())return canonicalSectionType(direct);
+    return canonicalSectionType(selectedVoiceoverForClip(project,clip)?.sectionType);
   }
   function normalizeProfile(overrides={}){
     const p={...DEFAULT_PROFILE,...(overrides||{})};
@@ -42,11 +68,16 @@
   function processingPlan(project,clip){
     if(clip?.type!=='voice'||!competitionVoiceoverActive(project))return {active:false,reason:'legacy-or-non-voice'};
     if(project?.mixSettings?.competitionVoiceProcessing===false)return {active:false,reason:'disabled'};
-    const profile=normalizeProfile(project?.mixSettings?.competitionVoiceProcessingProfile);
+    const sectionType=resolveSectionType(project,clip);
+    const sectionProfile=SECTION_PROFILES[sectionType]||null;
+    const profile=normalizeProfile({...sectionProfile,...(project?.mixSettings?.competitionVoiceProcessingProfile||{})});
     return {
       active:true,
       nonDestructive:true,
       timingSafe:true,
+      sectionAware:true,
+      sectionType,
+      sectionProfileId:sectionProfile?.id||DEFAULT_PROFILE.id,
       profile,
       speechGain:dbToGain(profile.speechGainDb),
       outputGain:dbToGain(profile.outputHeadroomDb),
@@ -64,5 +95,5 @@
     highpass.connect(presence).connect(compressor).connect(speechGain).connect(outputGain);
     return {input:highpass,output:outputGain,highpass,presence,compressor,speechGain,outputGain,plan};
   }
-  return {DEFAULT_PROFILE,dbToGain,competitionVoiceoverActive,normalizeProfile,processingPlan,configureWebAudioNodes};
+  return {DEFAULT_PROFILE,SECTION_PROFILES,dbToGain,competitionVoiceoverActive,canonicalSectionType,selectedVoiceoverForClip,resolveSectionType,normalizeProfile,processingPlan,configureWebAudioNodes};
 });
