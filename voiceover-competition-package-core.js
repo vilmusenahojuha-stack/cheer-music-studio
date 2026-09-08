@@ -21,6 +21,12 @@
   function getPlan(input,name){
     return input?.[`${name}Plan`]||input?.[name]||null;
   }
+  function planItems(plan,name){
+    if(name==='ducking')return array(plan?.reservations).length?array(plan.reservations):array(plan?.items);
+    if(name==='placement')return array(plan?.slots);
+    if(name==='conflict')return array(plan?.conflicts);
+    return array(plan?.items);
+  }
   function buildVoiceoverCompetitionPackage(input={}){
     input=input||{};
     const base={version:1,kind:'cheer-voiceover-competition-package',status:'blocked',reason:'voiceover-plans-required',nonDestructive:true,executable:false,safePreviewOnly:true,selected:[],deferred:[],riskFlags:[],summary:{selected:0,deferred:0,ready:0,review:0}};
@@ -34,10 +40,10 @@
 
     const prioritySelections=array(plans.priority.selections);
     if(!prioritySelections.length)return {...base,reason:'priority-selections-required'};
-    const placement=byId(plans.placement.slots,'id');
-    const rhythm=byId(plans.rhythm.items);
-    const ducking=byId(plans.ducking.items);
-    const conflict=byId(plans.conflict.conflicts);
+    const placement=byId(planItems(plans.placement,'placement'),'id');
+    const rhythm=byId(planItems(plans.rhythm,'rhythm'));
+    const ducking=byId(planItems(plans.ducking,'ducking'));
+    const conflict=byId(planItems(plans.conflict,'conflict'));
     const selected=[];
     const riskFlags=new Set();
 
@@ -72,7 +78,7 @@
         score:Number(choice?.score)||0,
         status:ready?'preview-ready':'review-required',
         placement:slot?{eight:slot.eight??null,count:slot.count??null}:null,
-        rhythm:rhythmItem?{countLength:rhythmItem.countLength??rhythmItem.counts??null,durationSec:rhythmItem.durationSec??null}:null,
+        rhythm:rhythmItem?{countLength:rhythmItem.countLength??rhythmItem.counts??null,durationSec:rhythmItem.durationSec??rhythmItem.speechWindow?.durationSeconds??null}:null,
         ducking:duckingItem?{musicGainDb:duckingItem.musicGainDb??duckingItem.duckDb??null,attackCounts:duckingItem.attackCounts??null,releaseCounts:duckingItem.releaseCounts??null}:null,
         conflict:conflictItem?{fxId:conflictItem.fxId??null,resolution:conflictItem.resolution??null}:null,
         risks:[...itemRisks],
@@ -106,7 +112,7 @@
     };
   }
 
-  const api={REQUIRED_KINDS,buildVoiceoverCompetitionPackage};
+  const api={REQUIRED_KINDS,planItems,buildVoiceoverCompetitionPackage};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerVoiceoverCompetitionPackageCore=api;
 })();
