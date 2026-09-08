@@ -7,13 +7,13 @@ function validInput(){
       {id:'vo-intro',sectionId:'intro',sectionType:'intro',eight:1,count:1,risks:[]},
       {id:'vo-ending',sectionId:'ending',sectionType:'ending',eight:17,count:1,risks:[]}
     ]},
-    rhythmPlan:{kind:'cheer-voiceover-rhythm-plan',status:'preview-ready',riskFlags:[],items:[
+    rhythmPlan:{kind:'cheer-voiceover-rhythm-plan',status:'preview-ready',bpm:150,riskFlags:[],items:[
       {slotId:'vo-intro',countLength:2,durationSec:0.8,risks:[]},
       {slotId:'vo-ending',countLength:4,durationSec:1.6,risks:[]}
     ]},
-    duckingPlan:{kind:'cheer-voiceover-ducking-plan',status:'preview-ready',riskFlags:[],reservations:[
-      {slotId:'vo-intro',duckDb:-4,attackCounts:0.5,releaseCounts:0.5,risks:[]},
-      {slotId:'vo-ending',duckDb:-6,attackCounts:0.5,releaseCounts:1,risks:[]}
+    duckingPlan:{kind:'cheer-voiceover-ducking-plan',status:'preview-ready',bpm:150,riskFlags:[],reservations:[
+      {slotId:'vo-intro',eight:1,duckDb:-4,attackCounts:0.5,releaseCounts:0.5,speechWindow:{startCount:1,endCount:3},duckWindow:{startCount:0.5,endCount:3.5},risks:[]},
+      {slotId:'vo-ending',eight:17,duckDb:-6,attackCounts:0.5,releaseCounts:1,speechWindow:{startCount:1,endCount:5},duckWindow:{startCount:0.5,endCount:6},risks:[]}
     ]},
     conflictPlan:{kind:'cheer-voiceover-fx-conflict-plan',status:'preview-ready',riskFlags:[],conflicts:[]},
     priorityPlan:{kind:'cheer-voiceover-competition-priority-plan',status:'preview-ready',riskFlags:[],selections:[
@@ -25,11 +25,15 @@ function validInput(){
 
 let plan=core.buildVoiceoverCompetitionPackage(validInput());
 assert.equal(plan.status,'preview-ready');
+assert.equal(plan.bpm,150);
 assert.equal(plan.summary.selected,2);
 assert.equal(plan.summary.ready,2);
 assert.equal(plan.selected[0].slotId,'vo-ending');
 assert.equal(plan.selected[0].role,'final-callout');
 assert.equal(plan.selected[0].ducking.musicGainDb,-6);
+assert.equal(plan.selected[0].ducking.eight,17);
+assert.deepEqual(plan.selected[0].ducking.speechWindow,{startCount:1,endCount:5});
+assert.deepEqual(plan.selected[0].ducking.duckWindow,{startCount:0.5,endCount:6});
 assert.equal(plan.deferred[0].status,'deferred');
 assert.equal(plan.nonDestructive,true);
 assert.equal(plan.executable,false);
