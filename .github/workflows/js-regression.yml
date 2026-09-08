@@ -49,6 +49,8 @@ jobs:
         run: node tests/competition-master-metrics-core.test.js
       - name: Competition master export readiness bridge tests
         run: node tests/competition-master-export-readiness-core.test.js
+      - name: Competition master final check tests
+        run: node tests/competition-master-final-check-core.test.js
       - name: Competition master assessment UI tests
         run: node tests/competition-master-assessment-ui.test.js
       - name: Pitch-preserving time-stretch tests
