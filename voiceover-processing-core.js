@@ -26,6 +26,12 @@
     pyramid:Object.freeze({id:'competition-voice-pyramid-v1',presenceDb:1.8,compressorThresholdDb:-18,compressorRatio:2.8,speechGainDb:1.2}),
     ending:Object.freeze({id:'competition-voice-ending-v1',presenceDb:2.8,compressorThresholdDb:-20,compressorRatio:3.2,speechGainDb:2})
   });
+  const ROLE_ADJUSTMENTS=Object.freeze({
+    'identity-callout':Object.freeze({presenceDb:.3,compressorThresholdDb:-1,compressorRatio:.1,speechGainDb:.2}),
+    'energy-callout':Object.freeze({presenceDb:.2,compressorThresholdDb:1,compressorRatio:-.2,compressorAttackSeconds:-.001,compressorReleaseSeconds:-.02,speechGainDb:.1}),
+    'support-callout':Object.freeze({presenceDb:-.3,compressorThresholdDb:1,compressorRatio:-.3,speechGainDb:-.2}),
+    'final-callout':Object.freeze({presenceDb:.4,compressorThresholdDb:-1,compressorRatio:.2,speechGainDb:.3,outputHeadroomDb:-.2})
+  });
   function competitionVoiceoverActive(project){
     return project?.mixSettings?.voiceoverCompetitionPackage?.kind==='cheer-voiceover-competition-package';
   }
@@ -35,6 +41,15 @@
     if(key==='end'||key==='finale'||key==='finish')return 'ending';
     if(key==='pyr')return 'pyramid';
     return SECTION_PROFILES[key]?key:'other';
+  }
+  function canonicalRole(value){
+    const key=String(value||'').trim().toLowerCase();
+    if(!key)return 'other';
+    if(key==='identity'||key==='intro-callout'||key==='team-callout')return 'identity-callout';
+    if(key==='energy'||key==='dance-callout'||key==='hype-callout')return 'energy-callout';
+    if(key==='support'||key==='supporting-callout')return 'support-callout';
+    if(key==='final'||key==='ending-callout'||key==='finale-callout'||key==='tag')return 'final-callout';
+    return ROLE_ADJUSTMENTS[key]?key:'other';
   }
   function selectedVoiceoverForClip(project,clip){
     const selected=Array.isArray(project?.mixSettings?.voiceoverCompetitionPackage?.selected)?project.mixSettings.voiceoverCompetitionPackage.selected:[];
@@ -46,6 +61,18 @@
     const direct=clip?.sectionType??clip?.cheerSectionType??clip?.voiceoverSectionType;
     if(direct!=null&&String(direct).trim())return canonicalSectionType(direct);
     return canonicalSectionType(selectedVoiceoverForClip(project,clip)?.sectionType);
+  }
+  function resolveRole(project,clip){
+    const direct=clip?.voiceoverRole??clip?.competitionVoiceoverRole??clip?.role;
+    if(direct!=null&&String(direct).trim())return canonicalRole(direct);
+    return canonicalRole(selectedVoiceoverForClip(project,clip)?.role);
+  }
+  function applyRoleAdjustment(profile,role){
+    const adjustment=ROLE_ADJUSTMENTS[canonicalRole(role)];
+    if(!adjustment)return {...profile};
+    const adjusted={...profile};
+    for(const [key,delta] of Object.entries(adjustment))adjusted[key]=finite(adjusted[key],finite(DEFAULT_PROFILE[key],0))+delta;
+    return adjusted;
   }
   function normalizeProfile(overrides={}){
     const p={...DEFAULT_PROFILE,...(overrides||{})};
@@ -69,15 +96,22 @@
     if(clip?.type!=='voice'||!competitionVoiceoverActive(project))return {active:false,reason:'legacy-or-non-voice'};
     if(project?.mixSettings?.competitionVoiceProcessing===false)return {active:false,reason:'disabled'};
     const sectionType=resolveSectionType(project,clip);
+    const role=resolveRole(project,clip);
     const sectionProfile=SECTION_PROFILES[sectionType]||null;
-    const profile=normalizeProfile({...sectionProfile,...(project?.mixSettings?.competitionVoiceProcessingProfile||{})});
+    const roleAdjustment=ROLE_ADJUSTMENTS[role]||null;
+    const baseProfile={...DEFAULT_PROFILE,...sectionProfile};
+    const roleAdjusted=applyRoleAdjustment(baseProfile,role);
+    const profile=normalizeProfile({...roleAdjusted,...(project?.mixSettings?.competitionVoiceProcessingProfile||{})});
     return {
       active:true,
       nonDestructive:true,
       timingSafe:true,
       sectionAware:true,
+      roleAware:true,
       sectionType,
+      role,
       sectionProfileId:sectionProfile?.id||DEFAULT_PROFILE.id,
+      roleProfileId:roleAdjustment?`competition-voice-${role}-v1`:'competition-voice-role-neutral-v1',
       profile,
       speechGain:dbToGain(profile.speechGainDb),
       outputGain:dbToGain(profile.outputHeadroomDb),
@@ -95,5 +129,5 @@
     highpass.connect(presence).connect(compressor).connect(speechGain).connect(outputGain);
     return {input:highpass,output:outputGain,highpass,presence,compressor,speechGain,outputGain,plan};
   }
-  return {DEFAULT_PROFILE,SECTION_PROFILES,dbToGain,competitionVoiceoverActive,canonicalSectionType,selectedVoiceoverForClip,resolveSectionType,normalizeProfile,processingPlan,configureWebAudioNodes};
+  return {DEFAULT_PROFILE,SECTION_PROFILES,ROLE_ADJUSTMENTS,dbToGain,competitionVoiceoverActive,canonicalSectionType,canonicalRole,selectedVoiceoverForClip,resolveSectionType,resolveRole,applyRoleAdjustment,normalizeProfile,processingPlan,configureWebAudioNodes};
 });
