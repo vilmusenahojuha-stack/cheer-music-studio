@@ -1,0 +1,32 @@
+'use strict';
+const assert=require('assert');
+const auto=require('../voiceover-auto-loudness.js');
+const loudness=require('../voiceover-loudness-analysis-core.js');
+function buffer(amplitude=.2,seconds=1,sampleRate=48000){const n=Math.floor(seconds*sampleRate),ch=new Float32Array(n);for(let i=0;i<n;i++)ch[i]=amplitude*Math.sin(2*Math.PI*1000*i/sampleRate);return{sampleRate,numberOfChannels:1,length:n,duration:seconds,getChannelData(){return ch;}};}
+(async()=>{
+  auto.clearCache();let decodes=0;
+  const clip={id:'v1',type:'voice',sourceName:'voice.wav',start:12.5,duration:2.25,sourceOffset:.5,volume:.8};
+  const before={start:clip.start,duration:clip.duration,sourceOffset:clip.sourceOffset,volume:clip.volume};
+  const track={name:'voice.wav',url:'blob:voice-1'};
+  const result=await auto.analyzeClipSource(clip,track,{loudnessCore:loudness,decodeTrack:async()=>{decodes++;return buffer(.2);}});
+  assert.strictEqual(result.status,'analyzed');
+  assert.strictEqual(clip.voiceoverLoudnessSource,'automatic-source-analysis');
+  assert.strictEqual(clip.voiceoverLoudnessMeasurement.kind,'cheer-voiceover-loudness-measurement');
+  assert(Number.isFinite(clip.voiceoverIntegratedLufs));
+  assert(Number.isFinite(clip.voiceoverTruePeakDb));
+  assert.deepStrictEqual({start:clip.start,duration:clip.duration,sourceOffset:clip.sourceOffset,volume:clip.volume},before,'analysis must not change clip timing or level');
+  const second={id:'v2',type:'voice',sourceName:'voice.wav',start:20,duration:1.5,sourceOffset:0};
+  const cached=await auto.analyzeClipSource(second,track,{loudnessCore:loudness,decodeTrack:async()=>{decodes++;return buffer(.4);}});
+  assert.strictEqual(cached.status,'analyzed');
+  assert.strictEqual(decodes,1,'same source should reuse cached loudness measurement');
+  assert.strictEqual(second.voiceoverIntegratedLufs,clip.voiceoverIntegratedLufs);
+  const again=await auto.analyzeClipSource(clip,track,{loudnessCore:loudness,decodeTrack:async()=>{throw new Error('must not decode measured clip');}});
+  assert.deepStrictEqual({status:again.status,reason:again.reason},{status:'skipped',reason:'already-measured'});
+  const music={type:'music',sourceName:'voice.wav'};
+  const musicResult=await auto.analyzeClipSource(music,track,{loudnessCore:loudness,decodeTrack:async()=>{throw new Error('music must not decode');}});
+  assert.deepStrictEqual({status:musicResult.status,reason:musicResult.reason},{status:'skipped',reason:'not-voice'});
+  const missing=await auto.analyzeClipSource({type:'voice',sourceName:'missing.wav'},null,{loudnessCore:loudness});
+  assert.deepStrictEqual({status:missing.status,reason:missing.reason},{status:'skipped',reason:'source-track-missing'});
+  const project={tracks:[track]};assert.strictEqual(auto.findSourceTrack(project,{sourceName:'voice.wav'}),track);
+  console.log('automatic voiceover loudness integration checks passed');
+})().catch(err=>{console.error(err);process.exitCode=1;});
