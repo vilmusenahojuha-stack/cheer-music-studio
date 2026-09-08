@@ -1,6 +1,7 @@
 ((root,factory)=>{const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.CheerVoiceoverProcessingCore=api})(typeof globalThis!=='undefined'?globalThis:this,()=>{
   'use strict';
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
+  const optionalFinite=(value,fallback=null)=>(value==null||value==='')?fallback:finite(value,fallback);
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const dbToGain=db=>Math.pow(10,finite(db,0)/20);
   const DEFAULT_PROFILE=Object.freeze({
@@ -59,7 +60,7 @@
   function canonicalRhythmShape(value,counts=null){
     const key=String(value||'').trim().toLowerCase();
     if(key==='hit'||key==='callout'||key==='phrase')return key;
-    const n=finite(counts,null);
+    const n=optionalFinite(counts,null);
     if(n!=null){if(n<=2)return 'hit';if(n===3)return 'callout';if(n>=4)return 'phrase';}
     return 'other';
   }
@@ -81,7 +82,7 @@
   }
   function resolveRhythm(project,clip){
     const selected=selectedVoiceoverForClip(project,clip);
-    const counts=finite(clip?.voiceoverAssignedCounts??clip?.assignedCounts??selected?.rhythm?.assignedCounts??selected?.rhythm?.countLength,null);
+    const counts=optionalFinite(clip?.voiceoverAssignedCounts??clip?.assignedCounts??selected?.rhythm?.assignedCounts??selected?.rhythm?.countLength,null);
     const shape=canonicalRhythmShape(clip?.voiceoverRhythmShape??clip?.rhythmShape??selected?.rhythm?.shape,counts);
     return {shape,assignedCounts:counts};
   }
