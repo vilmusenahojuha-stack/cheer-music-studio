@@ -8,6 +8,11 @@ assert.ok(!/MediaRecorder/.test(exportJs),'production WAV export must not use Me
 assert.ok(!/audio\/webm|codecs=opus|audioBitsPerSecond/.test(exportJs),'production WAV export must not contain lossy WebM/Opus recorder path');
 assert.ok(/CheerOfflineRenderer\.renderProject/.test(exportJs),'WAV export must use offline PCM renderer');
 assert.ok(/CheerWav24\.fromAudioBuffer/.test(exportJs),'WAV export must encode rendered PCM directly as 24-bit WAV');
+assert.ok(/competition-master-metrics-core\.js/.test(exportJs),'competition master metrics core must be available to the export path');
+assert.ok(/measureCompetitionMaster\(rendered\)/.test(exportJs),'rendered post-voiceover PCM must be measured before final export');
+assert.ok(/getLastCompetitionMasterMetrics/.test(exportJs),'latest competition master input metrics must remain available for readiness integration');
+const renderAt=exportJs.indexOf('CheerOfflineRenderer.renderProject'),measureAt=exportJs.indexOf('measureCompetitionMaster(rendered)'),headroomAt=exportJs.indexOf('applyMasterHeadroom(rendered');
+assert.ok(renderAt>=0&&measureAt>renderAt&&headroomAt>measureAt,'competition metrics must measure the untouched post-voiceover render before headroom gain changes PCM');
 assert.ok(/SAMPLE_RATE=48000/.test(offline),'offline renderer must be fixed at 48 kHz');
 assert.ok(/CHANNELS=2/.test(offline),'offline renderer must be stereo');
 assert.ok(/OfflineAudioContext/.test(offline),'offline renderer must use OfflineAudioContext');
@@ -18,4 +23,4 @@ const dsp=index.indexOf('mix-dsp-core.js'),stretch=index.indexOf('time-stretch-c
 assert.ok(dsp>=0&&stretch>dsp&&timing>stretch,'shared DSP and time-stretch must load before timing/playback core');
 assert.ok(timeline>timing,'timeline AudioContext engine must load after shared timing/stretch cores');
 assert.ok(wav>=0&&renderer>wav&&exp>renderer,'WAV encoder and offline renderer must load before export UI');
-console.log('lossless-export-contract: shared pitch stretch + OfflineAudioContext -> 48 kHz stereo PCM -> 24-bit WAV path enforced');
+console.log('lossless-export-contract: shared pitch stretch + OfflineAudioContext -> post-voiceover master metrics -> 48 kHz stereo PCM -> 24-bit WAV path enforced');
