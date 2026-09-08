@@ -35,6 +35,8 @@ jobs:
         run: node tests/voiceover-ducking-render-core.test.js
       - name: Voiceover Smart Mix preservation tests
         run: node tests/voiceover-smart-mix-preview-preservation.test.js
+      - name: Competition voiceover clarity processing tests
+        run: node tests/voiceover-processing-core.test.js
       - name: Pitch-preserving time-stretch tests
         run: node tests/time-stretch-core.test.js
       - name: Signalsmith HQ adapter tests
