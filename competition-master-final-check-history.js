@@ -92,19 +92,66 @@
     return null;
   }
 
+  function getFlagMetric(flag,finalCheck){
+    const checks=finalCheck?.checks||{};
+    if(flag==='final-true-peak-headroom-failed')return makeMetric(checks.truePeak?.valueDbtp,null,checks.truePeak?.limitDbtp,'dBTP',2);
+    if(flag==='final-dynamics-check-failed')return makeMetric(checks.loudnessRange?.valueLu,checks.loudnessRange?.minLu,checks.loudnessRange?.maxLu,'LU',1);
+    if(flag==='final-section-balance-failed')return makeMetric(checks.sectionBalance?.spreadDb,null,checks.sectionBalance?.maxSpreadDb,'dB',1);
+    if(flag==='final-voiceover-clarity-failed')return makeMetric(checks.voiceoverClarity?.score,checks.voiceoverClarity?.minScore,null,'',2);
+    if(flag==='final-fx-clarity-failed')return makeMetric(checks.fxClarity?.score,checks.fxClarity?.minScore,null,'',2);
+    return null;
+  }
+
   function getSectionMeasurement(issue){
     const score=formatNumber(issue?.focusScore,2),minScore=formatNumber(issue?.focusMinScore,2);
     if(score===null||minScore===null)return null;
     return `${score} · raja ≥ ${minScore}`;
   }
 
+  function makeMetric(value,min,max,unit,digits){
+    const v=finite(value),lo=finite(min),hi=finite(max);
+    if(v===null)return null;
+    return {value:v,min:lo,max:hi,unit:unit||'',digits:Number.isInteger(digits)?digits:2};
+  }
+
+  function getSectionMetric(issue){
+    return makeMetric(issue?.focusScore,issue?.focusMinScore,null,'',2);
+  }
+
+  function distanceToTarget(metric){
+    if(!metric||finite(metric.value)===null)return null;
+    const value=Number(metric.value),min=finite(metric.min),max=finite(metric.max);
+    if(min!==null&&value<min)return min-value;
+    if(max!==null&&value>max)return value-max;
+    return 0;
+  }
+
+  function formatMetricValue(metric){
+    if(!metric)return null;
+    const value=formatNumber(metric.value,metric.digits);
+    if(value===null)return null;
+    return metric.unit?`${value} ${metric.unit}`:value;
+  }
+
+  function compareMetricTrend(previousMetric,nextMetric){
+    if(!previousMetric||!nextMetric)return null;
+    const before=distanceToTarget(previousMetric),after=distanceToTarget(nextMetric);
+    if(before===null||after===null)return null;
+    const previousValue=formatMetricValue(previousMetric),nextValue=formatMetricValue(nextMetric);
+    if(previousValue===null||nextValue===null||previousValue===nextValue)return null;
+    const epsilon=1e-9;
+    const direction=after<before-epsilon?'parani':after>before+epsilon?'heikkeni':'muuttui';
+    return `${direction} ${previousValue} → ${nextValue}`;
+  }
+
   function formatRiskStatus(item,state){
     const label=item?.label||'Tuntematon riski';
     const suffix=RISK_STATE_SUFFIX[state]||'tila muuttui';
     const active=state==='remaining'||state==='added';
+    const trend=active&&item?.trend?` · ${item.trend}`:'';
     const measurement=active&&item?.measurement?` · mitattu ${item.measurement}`:'';
     const guidance=active?item?.guidance:null;
-    return `${label} — ${suffix}${measurement}${guidance?` → ${guidance}`:''}`;
+    return `${label} — ${suffix}${trend}${measurement}${guidance?` → ${guidance}`:''}`;
   }
 
   function sectionRiskKey(issue){
@@ -119,13 +166,13 @@
   function collectRisks(finalCheck){
     const risks=[];
     for(const flag of array(finalCheck?.riskFlags)){
-      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:formatFlagLabel(flag),guidance:FLAG_GUIDANCE[flag]||'Tarkista tämä final-check-riski ennen kilpailumasterin hyväksyntää.',measurement:getFlagMeasurement(flag,finalCheck),rawLabel:String(flag)});
+      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:formatFlagLabel(flag),guidance:FLAG_GUIDANCE[flag]||'Tarkista tämä final-check-riski ennen kilpailumasterin hyväksyntää.',measurement:getFlagMeasurement(flag,finalCheck),metric:getFlagMetric(flag,finalCheck),rawLabel:String(flag)});
     }
     for(const issue of array(finalCheck?.sectionIssues)){
       const key=sectionRiskKey(issue);
       if(!key)continue;
       const kind=issue.focusKind||'clarity';
-      risks.push({key,type:'section',label:formatSectionLabel(issue),guidance:getSectionGuidance(issue),measurement:getSectionMeasurement(issue),sectionId:issue.sectionId||null,kind});
+      risks.push({key,type:'section',label:formatSectionLabel(issue),guidance:getSectionGuidance(issue),measurement:getSectionMeasurement(issue),metric:getSectionMetric(issue),sectionId:issue.sectionId||null,kind});
     }
     return risks;
   }
@@ -137,7 +184,7 @@
     const beforeMap=new Map(before.map(item=>[item.key,item]));
     const afterMap=new Map(after.map(item=>[item.key,item]));
     const removed=before.filter(item=>!afterMap.has(item.key));
-    const remaining=after.filter(item=>beforeMap.has(item.key));
+    const remaining=after.filter(item=>beforeMap.has(item.key)).map(item=>({...item,trend:compareMetricTrend(beforeMap.get(item.key)?.metric,item.metric)}));
     const added=after.filter(item=>!beforeMap.has(item.key));
     return {
       kind:'cheer-competition-master-final-check-comparison',
@@ -227,9 +274,9 @@
     addStyle();
     ensureNode();
     window.addEventListener('cheer-competition-master-final-check-refreshed',event=>consumeRefresh(event?.detail||null));
-    window.cheerCompetitionMasterFinalCheckHistory={collectRisks,compareFinalChecks,formatRiskStatus,consumeRefresh,renderComparison,getLastComparison:()=>lastComparison};
+    window.cheerCompetitionMasterFinalCheckHistory={collectRisks,compareFinalChecks,formatRiskStatus,compareMetricTrend,consumeRefresh,renderComparison,getLastComparison:()=>lastComparison};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,FLAG_GUIDANCE,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,getSectionGuidance,getFlagMeasurement,getSectionMeasurement,formatRiskStatus,collectRisks,compareFinalChecks};
+  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,FLAG_GUIDANCE,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,getSectionGuidance,getFlagMeasurement,getFlagMetric,getSectionMeasurement,getSectionMetric,distanceToTarget,formatMetricValue,compareMetricTrend,formatRiskStatus,collectRisks,compareFinalChecks};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
