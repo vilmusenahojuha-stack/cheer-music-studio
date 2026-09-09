@@ -17,11 +17,15 @@ assert.ok(/voiceover clarity/.test(ui)&&/FX clarity/.test(ui),'assessment UI mus
 assert.ok(/sectionId/.test(ui)&&/data.*section/i.test(ui),'section-aware findings must retain the source section identity for later editor navigation');
 assert.ok(/focusStartSeconds/.test(ui)&&/data.*focus/i.test(ui),'section-aware findings must retain the weakest measured clarity-window timing');
 assert.ok(/focusKind/.test(ui),'section findings must retain whether the weakest focus is voiceover or FX');
+assert.ok(/focusScore/.test(ui)&&/focusMinScore/.test(ui),'section findings must retain exact measured clarity score and acceptance threshold');
+assert.ok(/dataset\.focusScore/.test(ui)&&/dataset\.focusMinScore/.test(ui),'rendered findings must expose diagnostic score and threshold for inspection');
 assert.ok(/focusSectionIssue/.test(ui),'assessment UI must expose a focused section navigation action');
 assert.ok(/cheerAudioEditor/.test(ui)&&/\.seek\(/.test(ui),'section navigation must use the existing audio editor seek API');
 assert.ok(/audioWorkspace/.test(ui)&&/scrollIntoView/.test(ui),'section navigation must bring the audio workspace into view');
+assert.ok(/score:issue\?\.focusScore/.test(ui)&&/minScore:issue\?\.focusMinScore/.test(ui),'section navigation must pass exact diagnostics to the timeline highlight');
 assert.ok(/competition-master-section-jump/.test(ui)&&/addEventListener\('click'/.test(ui),'timed section findings must be rendered as explicit clickable controls');
 assert.ok(/heikoimpaan mitattuun voiceover- tai FX-kohtaan/.test(ui),'UI must explain that findings jump to the precise measured problem window');
+assert.ok(/clarity-score sekä hyväksymisraja/.test(ui),'UI must explain that the highlight shows the measured score and acceptance threshold');
 assert.ok(/Siirry heikoimpaan/.test(ui),'precise clarity navigation must have an accessible Finnish action label');
 assert.ok(/Final-check ei löytänyt kilpailumasteria estäviä riskejä/.test(ui),'approved final-check must have a clear non-destructive user-facing state');
 assert.ok(/ei-tuhoava tarkistus/.test(ui),'assessment UI must clearly communicate non-destructive behavior');
@@ -31,4 +35,4 @@ assert.ok(/competition-master-section-clarity-core\.js/.test(workflow),'simple w
 assert.ok(/data-competition-master-section-clarity/.test(workflow),'section-aware clarity loader must prevent duplicate script insertion');
 assert.ok(/competition-master-assessment-ui\.js/.test(workflow),'simple workflow must load the assessment UI module');
 assert.ok(/data-competition-master-assessment/.test(workflow),'assessment UI loader must prevent duplicate script insertion');
-console.log('competition-master-assessment-ui: final-check findings navigate to the weakest measured clarity window without modifying audio');
+console.log('competition-master-assessment-ui: final-check findings carry precise score and threshold diagnostics to the weakest measured clarity window without modifying audio');
