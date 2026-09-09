@@ -133,15 +133,34 @@
     return metric.unit?`${value} ${metric.unit}`:value;
   }
 
-  function compareMetricTrend(previousMetric,nextMetric){
+  function compareMetricProgress(previousMetric,nextMetric){
     if(!previousMetric||!nextMetric)return null;
     const before=distanceToTarget(previousMetric),after=distanceToTarget(nextMetric);
     if(before===null||after===null)return null;
+    const rawDelta=before-after;
+    const epsilon=1e-9;
+    const direction=rawDelta>epsilon?'pieneni':rawDelta<-epsilon?'kasvoi':'ennallaan';
+    const digits=Math.max(previousMetric.digits??2,nextMetric.digits??2);
+    const amount=formatNumber(Math.abs(rawDelta),digits);
+    if(amount===null)return null;
+    const unit=nextMetric.unit||previousMetric.unit||'';
+    return {
+      beforeDistance:before,
+      afterDistance:after,
+      deltaDistance:rawDelta,
+      direction,
+      text:direction==='ennallaan'?`etäisyys rajaan ennallaan ${amount}${unit?` ${unit}`:''}`:`etäisyys rajaan ${direction} ${amount}${unit?` ${unit}`:''}`
+    };
+  }
+
+  function compareMetricTrend(previousMetric,nextMetric){
+    if(!previousMetric||!nextMetric)return null;
+    const progress=compareMetricProgress(previousMetric,nextMetric);
+    if(!progress)return null;
     const previousValue=formatMetricValue(previousMetric),nextValue=formatMetricValue(nextMetric);
     if(previousValue===null||nextValue===null||previousValue===nextValue)return null;
-    const epsilon=1e-9;
-    const direction=after<before-epsilon?'parani':after>before+epsilon?'heikkeni':'muuttui';
-    return `${direction} ${previousValue} → ${nextValue}`;
+    const direction=progress.deltaDistance>1e-9?'parani':progress.deltaDistance<-1e-9?'heikkeni':'muuttui';
+    return `${direction} ${previousValue} → ${nextValue} · ${progress.text}`;
   }
 
   function formatRiskStatus(item,state){
@@ -184,7 +203,7 @@
     const beforeMap=new Map(before.map(item=>[item.key,item]));
     const afterMap=new Map(after.map(item=>[item.key,item]));
     const removed=before.filter(item=>!afterMap.has(item.key));
-    const remaining=after.filter(item=>beforeMap.has(item.key)).map(item=>({...item,trend:compareMetricTrend(beforeMap.get(item.key)?.metric,item.metric)}));
+    const remaining=after.filter(item=>beforeMap.has(item.key)).map(item=>({...item,trend:compareMetricTrend(beforeMap.get(item.key)?.metric,item.metric),progress:compareMetricProgress(beforeMap.get(item.key)?.metric,item.metric)}));
     const added=after.filter(item=>!beforeMap.has(item.key));
     return {
       kind:'cheer-competition-master-final-check-comparison',
@@ -274,9 +293,9 @@
     addStyle();
     ensureNode();
     window.addEventListener('cheer-competition-master-final-check-refreshed',event=>consumeRefresh(event?.detail||null));
-    window.cheerCompetitionMasterFinalCheckHistory={collectRisks,compareFinalChecks,formatRiskStatus,compareMetricTrend,consumeRefresh,renderComparison,getLastComparison:()=>lastComparison};
+    window.cheerCompetitionMasterFinalCheckHistory={collectRisks,compareFinalChecks,formatRiskStatus,compareMetricTrend,compareMetricProgress,consumeRefresh,renderComparison,getLastComparison:()=>lastComparison};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,FLAG_GUIDANCE,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,getSectionGuidance,getFlagMeasurement,getFlagMetric,getSectionMeasurement,getSectionMetric,distanceToTarget,formatMetricValue,compareMetricTrend,formatRiskStatus,collectRisks,compareFinalChecks};
+  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,FLAG_GUIDANCE,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,getSectionGuidance,getFlagMeasurement,getFlagMetric,getSectionMeasurement,getSectionMetric,distanceToTarget,formatMetricValue,compareMetricProgress,compareMetricTrend,formatRiskStatus,collectRisks,compareFinalChecks};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
