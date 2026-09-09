@@ -2,6 +2,28 @@
   'use strict';
 
   const ITEM_SELECTOR='#competitionMasterSectionIssueList li[data-section-id]';
+  const FINAL_BLOCKING_RISKS=Object.freeze([
+    'final-true-peak-headroom-failed',
+    'final-dynamics-check-failed',
+    'final-section-balance-failed',
+    'final-section-peak-data-incomplete',
+    'final-voiceover-clarity-unmeasured',
+    'final-voiceover-clarity-failed',
+    'final-fx-clarity-unmeasured',
+    'final-fx-clarity-failed',
+    'final-section-clarity-failed',
+    'final-preview-hold-active',
+    'final-upstream-review-required'
+  ]);
+  const RECHECK_CLEARABLE_CLARITY_RISKS=Object.freeze([
+    'final-voiceover-clarity-failed',
+    'final-fx-clarity-failed',
+    'final-section-clarity-failed'
+  ]);
+  const UNMEASURED_CLARITY_RISKS=Object.freeze([
+    'final-voiceover-clarity-unmeasured',
+    'final-fx-clarity-unmeasured'
+  ]);
   const finite=value=>Number.isFinite(Number(value))?Number(value):null;
   const formatScore=value=>{
     const n=finite(value);
@@ -62,6 +84,28 @@
     return{total,resolved,open:Math.max(0,total-resolved)};
   }
 
+  function currentFinalCheck(){
+    return window.cheerMixExport?.getLastCompetitionMasterFinalCheck?.()||null;
+  }
+
+  function clarityGateState(finalCheck=currentFinalCheck(),counts=resolutionCounts()){
+    const riskFlags=Array.isArray(finalCheck?.riskFlags)?finalCheck.riskFlags:[];
+    const finalBlockingRisks=FINAL_BLOCKING_RISKS.filter(risk=>riskFlags.includes(risk));
+    const unmeasuredClarityRisks=UNMEASURED_CLARITY_RISKS.filter(risk=>finalBlockingRisks.includes(risk));
+    const allMeasuredSectionRisksResolved=counts.total>0&&counts.open===0;
+    const clarityReady=allMeasuredSectionRisksResolved&&unmeasuredClarityRisks.length===0;
+    const effectiveBlockingRisks=finalBlockingRisks.filter(risk=>!(clarityReady&&RECHECK_CLEARABLE_CLARITY_RISKS.includes(risk)));
+    const otherBlockingRisks=effectiveBlockingRisks.filter(risk=>!RECHECK_CLEARABLE_CLARITY_RISKS.includes(risk)&&!UNMEASURED_CLARITY_RISKS.includes(risk));
+    return{
+      clarityReady,
+      allMeasuredSectionRisksResolved,
+      unmeasuredClarityRisks,
+      otherBlockingRisks,
+      effectiveBlockingRisks,
+      finalReadyAfterClarityRecheck:clarityReady&&effectiveBlockingRisks.length===0
+    };
+  }
+
   function ensureSummary(){
     const box=document.querySelector('#competitionMasterSectionIssues');
     const list=document.querySelector('#competitionMasterSectionIssueList');
@@ -77,6 +121,42 @@
     return summary;
   }
 
+  function ensureFinalCheckState(){
+    const list=document.querySelector('#competitionMasterSectionIssueList');
+    if(!list)return null;
+    let state=document.querySelector('#competitionMasterClarityFinalCheckState');
+    if(state)return state;
+    state=document.createElement('div');
+    state.id='competitionMasterClarityFinalCheckState';
+    state.className='competition-master-clarity-final-check-state';
+    state.setAttribute('role','status');
+    state.setAttribute('aria-live','polite');
+    list.insertAdjacentElement('beforebegin',state);
+    return state;
+  }
+
+  function updateFinalCheckState(counts=resolutionCounts()){
+    const node=ensureFinalCheckState();
+    if(!node)return null;
+    const gate=clarityGateState(currentFinalCheck(),counts);
+    node.hidden=counts.total===0;
+    node.dataset.clarityReady=String(gate.clarityReady);
+    node.dataset.finalReadyAfterClarityRecheck=String(gate.finalReadyAfterClarityRecheck);
+    node.dataset.otherBlockers=String(gate.otherBlockingRisks.length);
+    if(counts.total===0){node.textContent='';return gate;}
+    if(counts.open>0){
+      node.textContent=`Clarity-final-check odottaa ${counts.open} avoimen riskin hyväksyttyä uudelleenmittausta.`;
+    }else if(gate.unmeasuredClarityRisks.length){
+      node.textContent='Tarkat clarity-riskit on hyväksytty, mutta puuttuva clarity-mittaus estää final-checkin.';
+    }else if(gate.otherBlockingRisks.length){
+      node.textContent=`Clarity tarkistettu – ${gate.otherBlockingRisks.length} muuta final-check-estettä jäljellä.`;
+    }else{
+      node.textContent='Clarity tarkistettu – clarity-osuus on puhdas ja final-check voidaan arvioida uudelleen.';
+    }
+    node.setAttribute('aria-label',`${node.textContent} Tämä johdettu tila ei muuta finalCheck.status-arvoa eikä käynnistä kilpailumasteria.`);
+    return gate;
+  }
+
   function updateSummary(){
     const summary=ensureSummary();
     if(!summary)return null;
@@ -87,6 +167,7 @@
     summary.dataset.resolved=String(counts.resolved);
     summary.dataset.total=String(counts.total);
     summary.setAttribute('aria-label',`Clarity-riskit: ${counts.open} avoinna, ${counts.resolved} tarkistettu. Laskuri ei muuta kilpailumasterin final-check-hyväksyntää.`);
+    updateFinalCheckState(counts);
     return counts;
   }
 
@@ -146,7 +227,7 @@
     if(document.querySelector('#competitionMasterClarityResolutionStyle'))return;
     const style=document.createElement('style');
     style.id='competitionMasterClarityResolutionStyle';
-    style.textContent='.competition-master-section-resolved{opacity:.88}.competition-master-resolution-badge{display:inline-block;margin:5px 0 0 5px;padding:3px 7px;border-radius:999px;background:rgba(34,197,94,.14);font-size:.78rem;font-weight:650}.competition-master-section-resolved .competition-master-section-guidance{display:none}.competition-master-clarity-resolution-summary{display:inline-block;margin:8px 0 2px;padding:4px 8px;border-radius:999px;background:rgba(148,163,184,.12);font-size:.8rem;font-weight:650}.competition-master-clarity-resolution-summary[data-open="0"]{background:rgba(34,197,94,.14)}';
+    style.textContent='.competition-master-section-resolved{opacity:.88}.competition-master-resolution-badge{display:inline-block;margin:5px 0 0 5px;padding:3px 7px;border-radius:999px;background:rgba(34,197,94,.14);font-size:.78rem;font-weight:650}.competition-master-section-resolved .competition-master-section-guidance{display:none}.competition-master-clarity-resolution-summary{display:inline-block;margin:8px 0 2px;padding:4px 8px;border-radius:999px;background:rgba(148,163,184,.12);font-size:.8rem;font-weight:650}.competition-master-clarity-resolution-summary[data-open="0"]{background:rgba(34,197,94,.14)}.competition-master-clarity-final-check-state{margin:6px 0 2px;font-size:.8rem;opacity:.82}.competition-master-clarity-final-check-state[data-clarity-ready="true"]{font-weight:650}';
     document.head.appendChild(style);
   }
 
@@ -156,7 +237,7 @@
     window.addEventListener('cheer-competition-master-clarity-recheck',onRecheck);
     const list=document.querySelector('#competitionMasterSectionIssueList');
     if(list)new MutationObserver(refreshAll).observe(list,{childList:true,subtree:true});
-    window.cheerCompetitionMasterClarityResolutionUI={refreshAll,refreshItem,issueFromItem,applyResolutionToItem,riskCountForItem,resolutionCounts,updateSummary,updateFindingLabel};
+    window.cheerCompetitionMasterClarityResolutionUI={refreshAll,refreshItem,issueFromItem,applyResolutionToItem,riskCountForItem,resolutionCounts,clarityGateState,updateSummary,updateFinalCheckState,updateFindingLabel};
   }
 
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
