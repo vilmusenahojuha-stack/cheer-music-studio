@@ -13,6 +13,8 @@ assert.ok(/voiceover-hold/.test(ui)&&/peak-headroom/.test(ui)&&/section-balance/
 assert.ok(/ei-tuhoava tarkistus/.test(ui),'assessment UI must clearly communicate non-destructive behavior');
 assert.ok(!/applyMasterHeadroom|fromAudioBuffer|renderProject|createGain|DynamicsCompressor|normalize/i.test(ui.replace(/normalisoi/g,'')),'assessment UI must not perform audio mastering or rendering');
 assert.ok(/MutationObserver/.test(ui),'assessment UI must refresh when export status changes');
+assert.ok(/competition-master-section-clarity-core\.js/.test(workflow),'simple workflow must load section-aware clarity before export analysis');
+assert.ok(/data-competition-master-section-clarity/.test(workflow),'section-aware clarity loader must prevent duplicate script insertion');
 assert.ok(/competition-master-assessment-ui\.js/.test(workflow),'simple workflow must load the assessment UI module');
 assert.ok(/data-competition-master-assessment/.test(workflow),'assessment UI loader must prevent duplicate script insertion');
 console.log('competition-master-assessment-ui: advisory export metrics/readiness/preview are surfaced without modifying audio');
