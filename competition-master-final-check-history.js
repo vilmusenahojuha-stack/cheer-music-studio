@@ -4,6 +4,33 @@
   let lastComparison=null;
   const q=s=>document.querySelector(s);
   const array=value=>Array.isArray(value)?value:[];
+  const FLAG_LABELS=Object.freeze({
+    'final-true-peak-headroom-failed':'True peak / headroom',
+    'final-dynamics-check-failed':'Dynamiikka',
+    'final-section-balance-failed':'Osioiden tasapaino',
+    'final-section-peak-data-incomplete':'Osioiden peak-mittaus puuttuu',
+    'final-voiceover-clarity-unmeasured':'Voiceover clarity mittaamatta',
+    'final-voiceover-clarity-failed':'Voiceover clarity',
+    'final-fx-clarity-unmeasured':'FX clarity mittaamatta',
+    'final-fx-clarity-failed':'FX clarity',
+    'final-section-clarity-failed':'Osioiden clarity',
+    'final-preview-hold-active':'Master-preview hold',
+    'final-upstream-review-required':'Aiempi tarkistus vaatii huomiota'
+  });
+
+  function formatFlagLabel(flag){
+    if(FLAG_LABELS[flag])return FLAG_LABELS[flag];
+    return String(flag||'Tuntematon riski')
+      .replace(/^final-/,'')
+      .replace(/-/g,' ')
+      .replace(/^./,c=>c.toUpperCase());
+  }
+
+  function formatSectionLabel(issue){
+    const section=issue?.label||issue?.sectionId||'Section';
+    const kind=issue?.focusKind==='voiceover'?'voiceover':issue?.focusKind==='fx'?'FX':issue?.focusKind||'clarity';
+    return `${section} · ${kind}`;
+  }
 
   function sectionRiskKey(issue){
     if(!issue)return null;
@@ -17,13 +44,13 @@
   function collectRisks(finalCheck){
     const risks=[];
     for(const flag of array(finalCheck?.riskFlags)){
-      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:String(flag)});
+      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:formatFlagLabel(flag),rawLabel:String(flag)});
     }
     for(const issue of array(finalCheck?.sectionIssues)){
       const key=sectionRiskKey(issue);
       if(!key)continue;
       const kind=issue.focusKind||'clarity';
-      risks.push({key,type:'section',label:`${issue.label||issue.sectionId||'Section'} · ${kind}`,sectionId:issue.sectionId||null,kind});
+      risks.push({key,type:'section',label:formatSectionLabel(issue),sectionId:issue.sectionId||null,kind});
     }
     return risks;
   }
@@ -65,15 +92,40 @@
     return node;
   }
 
+  function appendRiskGroup(node,title,items,state){
+    if(!items.length)return;
+    const group=document.createElement('div');
+    group.className='competition-master-final-check-history-group';
+    group.dataset.state=state;
+    const heading=document.createElement('strong');
+    heading.textContent=title;
+    group.appendChild(heading);
+    const list=document.createElement('ul');
+    for(const item of items){
+      const li=document.createElement('li');
+      li.textContent=item.label;
+      list.appendChild(li);
+    }
+    group.appendChild(list);
+    node.appendChild(group);
+  }
+
   function renderComparison(comparison){
     const node=ensureNode();
     if(!node)return false;
-    if(!comparison){node.textContent='';node.hidden=true;return false;}
+    node.replaceChildren();
+    if(!comparison){node.hidden=true;return false;}
     node.hidden=false;
     const removed=comparison.removed.length;
     const remaining=comparison.remaining.length;
     const added=comparison.added.length;
-    node.textContent=`Final-check vertailu: ${removed} poistui · ${remaining} jäi · ${added} uusi${added===1?'':'a'}.`;
+    const summary=document.createElement('div');
+    summary.className='competition-master-final-check-history-summary';
+    summary.textContent=`Final-check vertailu: ${removed} poistui · ${remaining} jäi · ${added} uusi${added===1?'':'a'}.`;
+    node.appendChild(summary);
+    appendRiskGroup(node,'Poistuneet riskit',comparison.removed,'removed');
+    appendRiskGroup(node,'Jäljellä olevat riskit',comparison.remaining,'remaining');
+    appendRiskGroup(node,'Uudet riskit',comparison.added,'added');
     node.dataset.improved=comparison.improved?'true':'false';
     node.dataset.unchanged=comparison.unchanged?'true':'false';
     return true;
@@ -92,7 +144,7 @@
     if(q('#competitionMasterFinalCheckHistoryStyle'))return;
     const style=document.createElement('style');
     style.id='competitionMasterFinalCheckHistoryStyle';
-    style.textContent='.competition-master-final-check-history{margin:5px 0 2px;font-size:.8rem;opacity:.86}.competition-master-final-check-history[data-improved="true"]{font-weight:600}';
+    style.textContent='.competition-master-final-check-history{margin:5px 0 2px;font-size:.8rem;opacity:.9}.competition-master-final-check-history[data-improved="true"] .competition-master-final-check-history-summary{font-weight:600}.competition-master-final-check-history-group{margin-top:4px}.competition-master-final-check-history-group strong{font-size:.78rem}.competition-master-final-check-history-group ul{margin:2px 0 0 18px;padding:0}.competition-master-final-check-history-group[data-state="removed"]{opacity:.78}.competition-master-final-check-history-group[data-state="added"]{font-weight:600}';
     document.head.appendChild(style);
   }
 
@@ -103,6 +155,6 @@
     window.cheerCompetitionMasterFinalCheckHistory={collectRisks,compareFinalChecks,consumeRefresh,renderComparison,getLastComparison:()=>lastComparison};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={collectRisks,compareFinalChecks};
+  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,formatFlagLabel,formatSectionLabel,collectRisks,compareFinalChecks};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
