@@ -63,11 +63,15 @@ function sectionClarity(){
   assert.equal(issues[0].focusKind,'voiceover');
   assert.equal(issues[0].focusStartSeconds,96.2);
   assert.equal(issues[0].focusEndSeconds,96.7);
+  assert.equal(issues[0].focusScore,.52);
+  assert.equal(issues[0].focusMinScore,.72);
   assert.equal(issues[1].focusKind,'fx');
   assert.equal(issues[1].focusStartSeconds,145.3);
   assert.equal(issues[1].focusEndSeconds,145.55);
+  assert.equal(issues[1].focusScore,.49);
+  assert.equal(issues[1].focusMinScore,.68);
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview(),metrics:metrics({sectionClarity:section})});
-  assert.equal(result.version,4);
+  assert.equal(result.version,5);
   assert.equal(result.status,'review-required');
   assert(result.riskFlags.includes('final-section-clarity-failed'));
   assert(result.recommendations.includes('resolve-section-clarity-before-final-master'));
@@ -75,11 +79,15 @@ function sectionClarity(){
   assert.equal(result.checks.sectionClarity.weakestSectionLabel,'Ending');
   assert.deepEqual(result.sectionIssues.map(issue=>issue.label),['Dance','Ending']);
   assert.deepEqual(result.sectionIssues.map(issue=>issue.focusStartSeconds),[96.2,145.3]);
+  assert.deepEqual(result.sectionIssues.map(issue=>issue.focusScore),[.52,.49]);
+  assert.deepEqual(result.sectionIssues.map(issue=>issue.focusMinScore),[.72,.68]);
 }
 {
   const fallback={kind:'cheer-competition-master-section-clarity',summary:{status:'review-required'},sections:[{id:'dance',label:'Dance',start:82.5,end:111,status:'review-required',voiceover:{ready:false,score:.61},fx:{ready:null,score:null},riskFlags:['section-voiceover-clarity-failed']}]};
   const issue=sectionClarityIssues(fallback)[0];
   assert.equal(issue.focusStartSeconds,82.5,'legacy section clarity without weakestItem must fall back safely to section start');
+  assert.equal(issue.focusScore,null,'legacy section clarity without weakestItem must not invent a diagnostic score');
+  assert.equal(issue.focusMinScore,null,'legacy section clarity without weakestItem must not invent a diagnostic threshold');
 }
 {
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview('review-required',[{type:'pre-master-hold'}]),metrics:metrics()});
