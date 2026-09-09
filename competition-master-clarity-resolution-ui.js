@@ -40,6 +40,56 @@
     button.textContent=parts.map(part=>part.includes(prefix)?replacement:part).join(' · ');
   }
 
+  function riskCountForItem(item){
+    if(!item)return 0;
+    const button=item.querySelector?.('.competition-master-section-jump');
+    const label=String(button?.dataset?.originalLabel||button?.textContent||item.textContent||'');
+    let count=0;
+    if(label.includes('voiceover clarity'))count++;
+    if(label.includes('FX clarity'))count++;
+    if(!count&&label.includes('clarity tarkistettava'))count=1;
+    return count;
+  }
+
+  function resolutionCounts(){
+    const items=[...document.querySelectorAll(ITEM_SELECTOR)];
+    let total=0,resolved=0;
+    items.forEach(item=>{
+      const risks=riskCountForItem(item);
+      total+=risks;
+      if(risks>0&&item.dataset.resolution==='resolved')resolved+=1;
+    });
+    return{total,resolved,open:Math.max(0,total-resolved)};
+  }
+
+  function ensureSummary(){
+    const box=document.querySelector('#competitionMasterSectionIssues');
+    const list=document.querySelector('#competitionMasterSectionIssueList');
+    if(!box||!list)return null;
+    let summary=document.querySelector('#competitionMasterClarityResolutionSummary');
+    if(summary)return summary;
+    summary=document.createElement('div');
+    summary.id='competitionMasterClarityResolutionSummary';
+    summary.className='competition-master-clarity-resolution-summary';
+    summary.setAttribute('role','status');
+    summary.setAttribute('aria-live','polite');
+    list.insertAdjacentElement('beforebegin',summary);
+    return summary;
+  }
+
+  function updateSummary(){
+    const summary=ensureSummary();
+    if(!summary)return null;
+    const counts=resolutionCounts();
+    summary.hidden=counts.total===0;
+    summary.textContent=counts.total?`${counts.open} avoinna · ${counts.resolved} tarkistettu`:'';
+    summary.dataset.open=String(counts.open);
+    summary.dataset.resolved=String(counts.resolved);
+    summary.dataset.total=String(counts.total);
+    summary.setAttribute('aria-label',`Clarity-riskit: ${counts.open} avoinna, ${counts.resolved} tarkistettu. Laskuri ei muuta kilpailumasterin final-check-hyväksyntää.`);
+    return counts;
+  }
+
   function applyResolutionToItem(item,resolution){
     if(!item)return false;
     const resolved=resolution?.resolved===true;
@@ -76,6 +126,7 @@
 
   function refreshAll(){
     document.querySelectorAll(ITEM_SELECTOR).forEach(refreshItem);
+    updateSummary();
   }
 
   function onRecheck(event){
@@ -88,13 +139,14 @@
       if(api.focusKey(issue)!==resolution.key)return;
       applyResolutionToItem(item,resolution);
     });
+    updateSummary();
   }
 
   function addStyle(){
     if(document.querySelector('#competitionMasterClarityResolutionStyle'))return;
     const style=document.createElement('style');
     style.id='competitionMasterClarityResolutionStyle';
-    style.textContent='.competition-master-section-resolved{opacity:.88}.competition-master-resolution-badge{display:inline-block;margin:5px 0 0 5px;padding:3px 7px;border-radius:999px;background:rgba(34,197,94,.14);font-size:.78rem;font-weight:650}.competition-master-section-resolved .competition-master-section-guidance{display:none}';
+    style.textContent='.competition-master-section-resolved{opacity:.88}.competition-master-resolution-badge{display:inline-block;margin:5px 0 0 5px;padding:3px 7px;border-radius:999px;background:rgba(34,197,94,.14);font-size:.78rem;font-weight:650}.competition-master-section-resolved .competition-master-section-guidance{display:none}.competition-master-clarity-resolution-summary{display:inline-block;margin:8px 0 2px;padding:4px 8px;border-radius:999px;background:rgba(148,163,184,.12);font-size:.8rem;font-weight:650}.competition-master-clarity-resolution-summary[data-open="0"]{background:rgba(34,197,94,.14)}';
     document.head.appendChild(style);
   }
 
@@ -104,7 +156,7 @@
     window.addEventListener('cheer-competition-master-clarity-recheck',onRecheck);
     const list=document.querySelector('#competitionMasterSectionIssueList');
     if(list)new MutationObserver(refreshAll).observe(list,{childList:true,subtree:true});
-    window.cheerCompetitionMasterClarityResolutionUI={refreshAll,refreshItem,issueFromItem,applyResolutionToItem,updateFindingLabel};
+    window.cheerCompetitionMasterClarityResolutionUI={refreshAll,refreshItem,issueFromItem,applyResolutionToItem,riskCountForItem,resolutionCounts,updateSummary,updateFindingLabel};
   }
 
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
