@@ -20,6 +20,22 @@
   function array(value){return Array.isArray(value)?value:[];}
   function addRisk(set,value,when=true){if(when)set.add(value);}
 
+  function sectionClarityIssues(sectionClarity){
+    if(!sectionClarity||sectionClarity.kind!=='cheer-competition-master-section-clarity')return [];
+    return array(sectionClarity.sections)
+      .filter(section=>section?.status==='review-required')
+      .map(section=>({
+        sectionId:section.id||null,
+        label:section.label||section.type||section.id||'Section',
+        type:section.type||'section',
+        voiceoverFailed:section.voiceover?.ready===false,
+        fxFailed:section.fx?.ready===false,
+        voiceoverScore:finite(section.voiceover?.score),
+        fxScore:finite(section.fx?.score),
+        riskFlags:array(section.riskFlags)
+      }));
+  }
+
   function buildCompetitionMasterFinalCheck(input={}){
     input=input||{};
     const base={
@@ -35,7 +51,8 @@
       renderAllowed:false,
       checks:{},
       riskFlags:[],
-      recommendations:[]
+      recommendations:[],
+      sectionIssues:[]
     };
 
     const preview=input.preview||input.masterPreview||null;
@@ -98,6 +115,12 @@
       recommendations.push('reduce-fx-masking');
     }
 
+    const sectionClarity=metrics.sectionClarity||input.sectionClarity||null;
+    const sectionIssues=sectionClarityIssues(sectionClarity);
+    const sectionClarityReady=sectionClarity?.summary?.status==='clear'?true:sectionIssues.length?false:null;
+    addRisk(risks,'final-section-clarity-failed',sectionIssues.length>0);
+    if(sectionIssues.length)recommendations.push('resolve-section-clarity-before-final-master');
+
     const hasHold=array(preview.actions).some(a=>a&&a.type==='pre-master-hold');
     addRisk(risks,'final-preview-hold-active',hasHold);
     if(hasHold)recommendations.push('resolve-master-preview-hold');
@@ -114,13 +137,14 @@
       'final-voiceover-clarity-failed',
       'final-fx-clarity-unmeasured',
       'final-fx-clarity-failed',
+      'final-section-clarity-failed',
       'final-preview-hold-active',
       'final-upstream-review-required'
     ];
     const finalReady=!blockingRisks.some(r=>risks.has(r));
 
     return {
-      version:1,
+      version:2,
       kind:'cheer-competition-master-final-check',
       profile:PROFILE.id,
       advisoryOnly:true,
@@ -136,9 +160,18 @@
         sectionBalance:{spreadDb:sectionSpreadDb,maxSpreadDb:PROFILE.maxSectionPeakSpreadDb,ready:sectionReady},
         voiceoverClarity:{score:voiceoverClarity,minScore:PROFILE.minVoiceoverClarityScore,ready:voiceoverReady},
         fxClarity:{score:fxClarity,minScore:PROFILE.minFxClarityScore,ready:fxReady},
+        sectionClarity:{
+          status:sectionClarity?.summary?.status||'unavailable',
+          sectionsMeasured:finite(sectionClarity?.summary?.sectionsMeasured,0),
+          sectionsReviewRequired:sectionIssues.length,
+          weakestSectionId:sectionClarity?.summary?.weakestSectionId||null,
+          weakestSectionLabel:sectionClarity?.summary?.weakestSectionLabel||null,
+          ready:sectionClarityReady
+        },
         previewHold:{active:hasHold,ready:!hasHold},
         upstream:{readinessStatus:readiness.status,previewStatus:preview.status,ready:!upstreamReview}
       },
+      sectionIssues,
       riskFlags:[...risks],
       recommendations:[...new Set(recommendations)],
       summary:{
@@ -149,7 +182,7 @@
     };
   }
 
-  const api={PROFILE,buildCompetitionMasterFinalCheck};
+  const api={PROFILE,sectionClarityIssues,buildCompetitionMasterFinalCheck};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerCompetitionMasterFinalCheckCore=api;
 })();
