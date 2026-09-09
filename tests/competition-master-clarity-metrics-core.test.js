@@ -1,5 +1,5 @@
 const assert=require('assert');
-const {PROFILE,measureCompetitionClarity,mergeIntoMasterMetrics}=require('../competition-master-clarity-metrics-core');
+const {PROFILE,measureCompetitionClarity,recheckFocusedClarity,mergeIntoMasterMetrics}=require('../competition-master-clarity-metrics-core');
 
 function buffer(seconds=4,sampleRate=1000){
   const data=new Float32Array(seconds*sampleRate);
@@ -50,6 +50,50 @@ function amplify(data,sampleRate,start,end,gain){
   assert.equal(result.fxClarityScore,null);
   assert.equal(result.sectionClarity.summary.status,'review-required');
   assert.equal(result.sectionClarity.summary.weakestSectionLabel,'Dance');
+}
+{
+  const b=buffer();
+  const original=b.data.slice();
+  amplify(b.data,b.sampleRate,1,1.5,1.05);
+  const before=measureCompetitionClarity(b,{voiceoverWindows:[{start:1,end:1.5}]});
+  const previousScore=before.voiceover.items[0].score;
+  amplify(b.data,b.sampleRate,1,1.5,4);
+  const recheck=recheckFocusedClarity(b,{kind:'voiceover',startSeconds:1,endSeconds:1.5,score:previousScore,minScore:.72});
+  assert.equal(recheck.kind,'cheer-competition-master-clarity-recheck');
+  assert.equal(recheck.version,1);
+  assert.equal(recheck.sameWindow,true);
+  assert.equal(recheck.focusKind,'voiceover');
+  assert.equal(recheck.startSeconds,1);
+  assert.equal(recheck.endSeconds,1.5);
+  assert.equal(recheck.previousScore,previousScore);
+  assert(recheck.currentScore>previousScore,`${recheck.currentScore} <= ${previousScore}`);
+  assert(recheck.improvement>0);
+  assert.equal(recheck.ready,true);
+  assert.equal(recheck.verdict,'passed');
+  assert.equal(recheck.measurement.windowsMeasured,1);
+  assert.equal(recheck.measurement.items[0].start,1);
+  assert.equal(recheck.measurement.items[0].end,1.5);
+  assert.equal(recheck.nonDestructive,true);
+  for(let i=0;i<original.length;i++){
+    const expected=(i>=1000&&i<1500)?original[i]*1.05*4:original[i];
+    assert(Math.abs(b.data[i]-expected)<1e-6,'recheck must not modify rendered PCM');
+  }
+}
+{
+  const b=buffer();
+  amplify(b.data,b.sampleRate,2,2.4,1.02);
+  const first=recheckFocusedClarity(b,{kind:'fx',startSeconds:2,endSeconds:2.4,score:.4,minScore:.68});
+  assert.equal(first.focusKind,'fx');
+  assert.equal(first.ready,false);
+  assert(['improved','still-below-target','regressed'].includes(first.verdict));
+  assert.equal(first.measurement.items[0].id,'clarity-recheck-focus');
+}
+{
+  const b=buffer();
+  const unavailable=recheckFocusedClarity(b,{kind:'voiceover',startSeconds:1,endSeconds:1});
+  assert.equal(unavailable.verdict,'unavailable');
+  assert.equal(unavailable.measurement,null);
+  assert.equal(unavailable.sameWindow,true);
 }
 {
   const b=buffer();
