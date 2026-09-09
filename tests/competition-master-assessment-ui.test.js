@@ -22,7 +22,7 @@ assert.ok(/dataset\.focusScore/.test(ui)&&/dataset\.focusMinScore/.test(ui),'ren
 assert.ok(/correctionGuidanceLabel/.test(ui)&&/correctionGuidance/.test(ui),'assessment UI must render structured correction guidance from final-check');
 assert.ok(/kevennä musiikkia paikallisesti voiceoverin alta/.test(ui),'voiceover guidance must prefer a local music-bed correction before global mix changes');
 assert.ok(/kevennä tai lyhennä peittävää FX:ää/.test(ui),'FX guidance must recommend reducing local masking rather than changing the whole master');
-assert.ok(/neuvoa-antavia eivätkä muuta audiota automaattisesti/.test(ui),'correction guidance must explicitly remain advisory and non-automatic');
+assert.ok(/neuvoa-antavia eivätkä muuta audiota automaattisesti/.test(ui)||/ilman WAV-vientiä tai automaattista korjausta/.test(ui),'correction and recheck guidance must explicitly remain non-automatic');
 assert.ok(/role','note'/.test(ui)||/setAttribute\('role','note'\)/.test(ui),'correction guidance must be exposed as an assistive note');
 assert.ok(/focusSectionIssue/.test(ui),'assessment UI must expose a focused section navigation action');
 assert.ok(/cheerAudioEditor/.test(ui)&&/\.seek\(/.test(ui),'section navigation must use the existing audio editor seek API');
@@ -34,10 +34,23 @@ assert.ok(/clarity-score sekä hyväksymisraja/.test(ui),'UI must explain that t
 assert.ok(/Siirry heikoimpaan/.test(ui),'precise clarity navigation must have an accessible Finnish action label');
 assert.ok(/Final-check ei löytänyt kilpailumasteria estäviä riskejä/.test(ui),'approved final-check must have a clear non-destructive user-facing state');
 assert.ok(/ei-tuhoava tarkistus/.test(ui),'assessment UI must clearly communicate non-destructive behavior');
-assert.ok(!/applyMasterHeadroom|fromAudioBuffer|renderProject|createGain|DynamicsCompressor|normalize/i.test(ui.replace(/normalisoi/g,'')),'assessment UI must not perform audio mastering or rendering');
+
+assert.ok(/recheckSectionIssue/.test(ui),'assessment UI must expose a same-window clarity recheck action');
+assert.ok(/cheerCompetitionMasterClarityRecheck/.test(ui)&&/\.recheck\(issue\)/.test(ui),'assessment UI must delegate measurement to the dedicated clarity recheck module');
+assert.ok(/Mittaa uudelleen/.test(ui),'precise clarity findings must provide an explicit Finnish recheck control');
+assert.ok(/hasPreciseFocus/.test(ui)&&/focusEnd/.test(ui),'recheck control must only be offered when a precise measurement window is available');
+assert.ok(/Renderöidään nykyinen projekti ja mitataan sama clarity-ikkuna uudelleen/.test(ui),'recheck UI must explain that the current project is being measured in the same window');
+assert.ok(/previousScore/.test(ui)&&/currentScore/.test(ui)&&/improvement/.test(ui)&&/minScore/.test(ui),'recheck result must compare before, after, change and acceptance threshold');
+assert.ok(/hyväksytty, raja/.test(ui)&&/parani, mutta on vielä alle rajan/.test(ui)&&/clarity heikkeni/.test(ui),'recheck result must distinguish passed, improved and regressed outcomes');
+assert.ok(/role','status'/.test(ui)||/setAttribute\('role','status'\)/.test(ui),'recheck result must be exposed as an assistive live status');
+assert.ok(/currentScore/.test(ui)&&/highlightRange/.test(ui),'successful recheck must highlight the exact measured window with the new score');
+assert.ok(/ilman WAV-vientiä tai automaattista korjausta/.test(ui),'UI must state that recheck neither exports WAV nor applies an automatic correction');
+assert.ok(!/applyMasterHeadroom|fromAudioBuffer|renderProject|createGain|DynamicsCompressor|normalize/i.test(ui.replace(/normalisoi/g,'')),'assessment UI itself must not perform audio mastering or rendering');
 assert.ok(/MutationObserver/.test(ui),'assessment UI must refresh when export status changes');
 assert.ok(/competition-master-section-clarity-core\.js/.test(workflow),'simple workflow must load section-aware clarity before export analysis');
 assert.ok(/data-competition-master-section-clarity/.test(workflow),'section-aware clarity loader must prevent duplicate script insertion');
+assert.ok(/competition-master-clarity-recheck\.js/.test(workflow),'simple workflow must load same-window clarity recheck before assessment UI');
+assert.ok(/data-competition-master-clarity-recheck/.test(workflow),'clarity recheck loader must prevent duplicate script insertion');
 assert.ok(/competition-master-assessment-ui\.js/.test(workflow),'simple workflow must load the assessment UI module');
 assert.ok(/data-competition-master-assessment/.test(workflow),'assessment UI loader must prevent duplicate script insertion');
-console.log('competition-master-assessment-ui: final-check findings show precise, advisory local correction guidance without modifying audio');
+console.log('competition-master-assessment-ui: precise final-check findings can remeasure the same window after a manual correction without automatic mastering');
