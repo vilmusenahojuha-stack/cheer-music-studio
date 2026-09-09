@@ -10,6 +10,15 @@
     return Math.max(1,declared,clipDuration);
   }
 
+  function competitionSections(project={}){
+    const direct=project?.competitionMasterSections;
+    const fromMix=project?.mixSettings?.competitionMasterSections;
+    const fromSmartMix=project?.smartMixProposalPackage?.cheerPlan?.sections;
+    if(Array.isArray(direct)&&direct.length)return direct;
+    if(Array.isArray(fromMix)&&fromMix.length)return fromMix;
+    return Array.isArray(fromSmartMix)?fromSmartMix:[];
+  }
+
   function voiceoverWindows(project={}){
     return (project?.audioTimeline?.clips||[])
       .filter(clip=>clip?.type==='voice'&&finite(clip?.start,-1)>=0&&finite(clip?.duration,0)>0)
@@ -46,16 +55,18 @@
   function buildCompetitionClarityWindows(project={},fxCore=null){
     const voiceover=voiceoverWindows(project);
     const fx=fxWindows(project,fxCore);
+    const sections=competitionSections(project);
     return {
       kind:'cheer-competition-master-clarity-windows',
-      version:1,
+      version:2,
       stage:'post-voiceover-mix',
       nonDestructive:true,
       voiceoverWindows:voiceover,
       fxWindows:fx,
-      counts:{voiceover:voiceover.length,fx:fx.length}
+      sections,
+      counts:{voiceover:voiceover.length,fx:fx.length,sections:sections.length}
     };
   }
 
-  return {projectDuration,voiceoverWindows,fxWindows,buildCompetitionClarityWindows};
+  return {projectDuration,competitionSections,voiceoverWindows,fxWindows,buildCompetitionClarityWindows};
 });
