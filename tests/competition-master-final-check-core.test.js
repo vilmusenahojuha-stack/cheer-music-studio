@@ -1,5 +1,5 @@
 const assert=require('assert');
-const {PROFILE,buildCompetitionMasterFinalCheck}=require('../competition-master-final-check-core');
+const {PROFILE,sectionClarityIssues,buildCompetitionMasterFinalCheck}=require('../competition-master-final-check-core');
 
 function readiness(status='preview-ready',riskFlags=[]){
   return {kind:'cheer-competition-master-readiness',status,riskFlags};
@@ -9,6 +9,17 @@ function preview(status='preview-ready',actions=[],riskFlags=[]){
 }
 function metrics(extra={}){
   return {truePeakDbtp:-1.3,loudnessRangeLu:5.2,sectionPeaksDb:[-2.4,-2.1,-2.7],voiceoverClarityScore:0.86,fxClarityScore:0.8,...extra};
+}
+function sectionClarity(){
+  return {
+    kind:'cheer-competition-master-section-clarity',
+    summary:{status:'review-required',sectionsMeasured:3,sectionsReviewRequired:2,weakestSectionId:'ending',weakestSectionLabel:'Ending'},
+    sections:[
+      {id:'stunt',label:'Stunt',type:'stunt',status:'clear',voiceover:{ready:true,score:.84},fx:{ready:true,score:.76},riskFlags:[]},
+      {id:'dance',label:'Dance',type:'dance',status:'review-required',voiceover:{ready:false,score:.61},fx:{ready:null,score:null},riskFlags:['section-voiceover-clarity-failed']},
+      {id:'ending',label:'Ending',type:'ending',status:'review-required',voiceover:{ready:null,score:null},fx:{ready:false,score:.55},riskFlags:['section-fx-clarity-failed']}
+    ]
+  };
 }
 
 {
@@ -39,6 +50,21 @@ function metrics(extra={}){
 {
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview(),metrics:metrics({fxClarityScore:0.5})});
   assert(result.riskFlags.includes('final-fx-clarity-failed'));
+}
+{
+  const section=sectionClarity();
+  const issues=sectionClarityIssues(section);
+  assert.equal(issues.length,2);
+  assert.deepEqual(issues.map(issue=>issue.label),['Dance','Ending']);
+  assert.equal(issues[0].voiceoverFailed,true);
+  assert.equal(issues[1].fxFailed,true);
+  const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview(),metrics:metrics({sectionClarity:section})});
+  assert.equal(result.status,'review-required');
+  assert(result.riskFlags.includes('final-section-clarity-failed'));
+  assert(result.recommendations.includes('resolve-section-clarity-before-final-master'));
+  assert.equal(result.checks.sectionClarity.sectionsReviewRequired,2);
+  assert.equal(result.checks.sectionClarity.weakestSectionLabel,'Ending');
+  assert.deepEqual(result.sectionIssues.map(issue=>issue.label),['Dance','Ending']);
 }
 {
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview('review-required',[{type:'pre-master-hold'}]),metrics:metrics()});
