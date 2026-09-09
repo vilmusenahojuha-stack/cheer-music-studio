@@ -28,6 +28,8 @@
         sectionId:section.id||null,
         label:section.label||section.type||section.id||'Section',
         type:section.type||'section',
+        startSeconds:finite(section.start),
+        endSeconds:finite(section.end),
         voiceoverFailed:section.voiceover?.ready===false,
         fxFailed:section.fx?.ready===false,
         voiceoverScore:finite(section.voiceover?.score),
@@ -144,7 +146,7 @@
     const finalReady=!blockingRisks.some(r=>risks.has(r));
 
     return {
-      version:2,
+      version:3,
       kind:'cheer-competition-master-final-check',
       profile:PROFILE.id,
       advisoryOnly:true,
