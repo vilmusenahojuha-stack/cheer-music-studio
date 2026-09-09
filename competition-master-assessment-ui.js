@@ -51,7 +51,7 @@
     panel.id='competitionMasterAssessment';
     panel.className='competition-master-assessment';
     panel.setAttribute('aria-live','polite');
-    panel.innerHTML=`<div class="competition-master-assessment-head"><div><h3>Kilpailumasterin arvio</h3><p>Suomen kilpailukäyttöön tarkoitettu ei-tuhoava tarkistus. Arvio ei normalisoi, kompressoi tai limitöi audiota automaattisesti.</p></div><span id="competitionMasterAssessmentBadge" class="competition-master-assessment-badge">Ei vielä arvioitu</span></div><div class="competition-master-assessment-grid"><div><small>True peak</small><strong id="competitionMasterAssessmentTp">—</strong></div><div><small>Integrated loudness</small><strong id="competitionMasterAssessmentLufs">—</strong></div><div><small>LRA</small><strong id="competitionMasterAssessmentLra">—</strong></div></div><div id="competitionMasterAssessmentAdvice" class="competition-master-assessment-advice">Arvio muodostuu 24-bit WAV -viennin yhteydessä valmiista post-voiceover-miksistä.</div><div id="competitionMasterSectionIssues" class="competition-master-section-issues" hidden><strong>Osakohtaiset clarity-havainnot</strong><p class="competition-master-section-hint">Avaa havainto siirtyäksesi suoraan heikoimpaan mitattuun voiceover- tai FX-kohtaan aikajanalla.</p><ul id="competitionMasterSectionIssueList"></ul></div>`;
+    panel.innerHTML=`<div class="competition-master-assessment-head"><div><h3>Kilpailumasterin arvio</h3><p>Suomen kilpailukäyttöön tarkoitettu ei-tuhoava tarkistus. Arvio ei normalisoi, kompressoi tai limitöi audiota automaattisesti.</p></div><span id="competitionMasterAssessmentBadge" class="competition-master-assessment-badge">Ei vielä arvioitu</span></div><div class="competition-master-assessment-grid"><div><small>True peak</small><strong id="competitionMasterAssessmentTp">—</strong></div><div><small>Integrated loudness</small><strong id="competitionMasterAssessmentLufs">—</strong></div><div><small>LRA</small><strong id="competitionMasterAssessmentLra">—</strong></div></div><div id="competitionMasterAssessmentAdvice" class="competition-master-assessment-advice">Arvio muodostuu 24-bit WAV -viennin yhteydessä valmiista post-voiceover-miksistä.</div><div id="competitionMasterSectionIssues" class="competition-master-section-issues" hidden><strong>Osakohtaiset clarity-havainnot</strong><p class="competition-master-section-hint">Avaa havainto siirtyäksesi suoraan heikoimpaan mitattuun voiceover- tai FX-kohtaan aikajanalla. Mittausikkuna korostetaan hetkellisesti.</p><ul id="competitionMasterSectionIssueList"></ul></div>`;
     exportPanel.insertAdjacentElement('afterend',panel);
     return panel;
   }
@@ -64,6 +64,10 @@
     q('#audioWorkspace')?.scrollIntoView?.({behavior:'smooth',block:'start'});
     if(editor.seek)editor.seek(focusSeconds,true);
     else editor.setPlayhead(focusSeconds,true);
+    const focusEnd=Number(issue?.focusEndSeconds);
+    if(Number.isFinite(focusEnd)&&focusEnd>focusSeconds){
+      editor.highlightRange?.(focusSeconds,focusEnd,{kind:issue?.focusKind||'clarity',durationMs:6000});
+    }
     return true;
   }
 
@@ -78,16 +82,18 @@
       if(issue?.sectionId)item.dataset.sectionId=issue.sectionId;
       const sectionStart=Number(issue?.startSeconds);
       const focusStart=Number.isFinite(Number(issue?.focusStartSeconds))?Number(issue.focusStartSeconds):sectionStart;
+      const focusEnd=Number(issue?.focusEndSeconds);
       if(Number.isFinite(sectionStart))item.dataset.startSeconds=String(sectionStart);
       if(Number.isFinite(focusStart)){
         item.dataset.focusSeconds=String(focusStart);
+        if(Number.isFinite(focusEnd)&&focusEnd>focusStart)item.dataset.focusEndSeconds=String(focusEnd);
         if(issue?.focusKind)item.dataset.focusKind=issue.focusKind;
         const button=document.createElement('button');
         button.type='button';
         button.className='competition-master-section-jump';
         button.textContent=sectionIssueLabel(issue);
         const focusKind=issue?.focusKind==='voiceover'?'voiceover-kohtaan':issue?.focusKind==='fx'?'FX-kohtaan':'clarity-kohtaan';
-        button.setAttribute('aria-label',`${sectionIssueLabel(issue)}. Siirry heikoimpaan ${focusKind} aikajanalla.`);
+        button.setAttribute('aria-label',`${sectionIssueLabel(issue)}. Siirry heikoimpaan ${focusKind} aikajanalla ja näytä mittausikkuna.`);
         button.addEventListener('click',()=>focusSectionIssue(issue));
         item.appendChild(button);
       }else item.textContent=sectionIssueLabel(issue);
