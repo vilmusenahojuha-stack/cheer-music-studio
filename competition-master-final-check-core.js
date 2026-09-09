@@ -33,6 +33,31 @@
     return candidates.filter(item=>item.startSeconds!==null).sort((a,b)=>(a.score-a.minScore)-(b.score-b.minScore))[0]||null;
   }
 
+  function clarityCorrectionGuidance(focus){
+    if(!focus||!['voiceover','fx'].includes(focus.kind))return null;
+    const score=finite(focus.score),minScore=finite(focus.minScore);
+    const deficit=score===null||minScore===null?null:Math.max(0,minScore-score);
+    const severity=deficit===null?'unknown':deficit>=0.18?'high':deficit>=0.08?'medium':'low';
+    if(focus.kind==='voiceover')return {
+      kind:'voiceover',
+      advisoryOnly:true,
+      severity,
+      scoreDeficit:deficit,
+      primaryAction:'lower-local-music-bed',
+      secondaryAction:'check-voiceover-level-and-midrange-separation',
+      note:'Kevennä musiikkia paikallisesti voiceoverin alta ja tarkista sen jälkeen puheen taso sekä keskialueen erottelu. Älä muuta koko miksin tasoa automaattisesti.'
+    };
+    return {
+      kind:'fx',
+      advisoryOnly:true,
+      severity,
+      scoreDeficit:deficit,
+      primaryAction:'reduce-or-shorten-masking-fx',
+      secondaryAction:'move-fx-away-from-critical-call-or-accent',
+      note:'Kevennä tai lyhennä peittävää FX:ää ja siirrä se tarvittaessa kauemmas kriittisestä huudosta, iskusta tai musiikin pääaksentista. Älä muuta audiota automaattisesti.'
+    };
+  }
+
   function sectionClarityIssues(sectionClarity){
     if(!sectionClarity||sectionClarity.kind!=='cheer-competition-master-section-clarity')return [];
     return array(sectionClarity.sections)
@@ -50,6 +75,7 @@
           focusEndSeconds:focus?.endSeconds??finite(section.end),
           focusScore:focus?.score??null,
           focusMinScore:focus?.minScore??null,
+          correctionGuidance:clarityCorrectionGuidance(focus),
           voiceoverFailed:section.voiceover?.ready===false,
           fxFailed:section.fx?.ready===false,
           voiceoverScore:finite(section.voiceover?.score),
@@ -169,7 +195,7 @@
     const finalReady=!blockingRisks.some(r=>risks.has(r));
 
     return {
-      version:5,
+      version:6,
       kind:'cheer-competition-master-final-check',
       profile:PROFILE.id,
       advisoryOnly:true,
@@ -207,7 +233,7 @@
     };
   }
 
-  const api={PROFILE,weakestFailedFocus,sectionClarityIssues,buildCompetitionMasterFinalCheck};
+  const api={PROFILE,weakestFailedFocus,clarityCorrectionGuidance,sectionClarityIssues,buildCompetitionMasterFinalCheck};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerCompetitionMasterFinalCheckCore=api;
 })();
