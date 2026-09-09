@@ -16,6 +16,7 @@
   }
   function array(value){return Array.isArray(value)?value:[];}
   function unique(values){return [...new Set(values)];}
+  function objectOrNull(value){return value&&typeof value==='object'&&!Array.isArray(value)?value:null;}
 
   function buildCompetitionMasterInput(input={}){
     input=input||{};
@@ -76,7 +77,11 @@
         headroomDb:Number(headroomDb.toFixed(3)),
         loudnessRangeLu,
         sectionPeaksDb,
-        integratedLufs:finite(metrics.integratedLufs)
+        integratedLufs:finite(metrics.integratedLufs),
+        voiceoverClarityScore:finite(metrics.voiceoverClarityScore),
+        fxClarityScore:finite(metrics.fxClarityScore),
+        clarityMeasurement:objectOrNull(metrics.clarityMeasurement),
+        sectionClarity:objectOrNull(metrics.sectionClarity)
       },
       voiceoverPackage:voiceover,
       riskFlags:unique([...risks]),
