@@ -63,6 +63,7 @@
     if(!renderer?.renderProject)throw new Error('Offline-renderöinti ei ole käytettävissä.');
     if(!mix?.measureCompetitionMaster||!mix?.measureCompetitionClarity||!mix?.evaluateCompetitionMasterReadiness)throw new Error('Kilpailumasterin mittausketju ei ole käytettävissä.');
 
+    const previousFinalCheck=mix.getLastCompetitionMasterFinalCheck?.()||null;
     running=true;
     refreshButtonState();
     const status=ensureStatus();
@@ -81,6 +82,7 @@
         source:'current-project-offline-render',
         nonDestructive:true,
         refreshedAt:new Date().toISOString(),
+        previousFinalCheck,
         metrics:competition.metrics,
         clarity:mix.getLastCompetitionMasterClarity?.()||null,
         readiness:readiness?.readiness||null,
