@@ -1,5 +1,5 @@
 const assert=require('assert');
-const {PROFILE,sectionClarityIssues,buildCompetitionMasterFinalCheck}=require('../competition-master-final-check-core');
+const {PROFILE,clarityCorrectionGuidance,sectionClarityIssues,buildCompetitionMasterFinalCheck}=require('../competition-master-final-check-core');
 
 function readiness(status='preview-ready',riskFlags=[]){
   return {kind:'cheer-competition-master-readiness',status,riskFlags};
@@ -52,6 +52,20 @@ function sectionClarity(){
   assert(result.riskFlags.includes('final-fx-clarity-failed'));
 }
 {
+  const voice=clarityCorrectionGuidance({kind:'voiceover',score:.52,minScore:.72});
+  assert.equal(voice.advisoryOnly,true);
+  assert.equal(voice.primaryAction,'lower-local-music-bed');
+  assert.equal(voice.secondaryAction,'check-voiceover-level-and-midrange-separation');
+  assert.equal(voice.severity,'high');
+  assert(Math.abs(voice.scoreDeficit-.2)<1e-9);
+  const fx=clarityCorrectionGuidance({kind:'fx',score:.63,minScore:.68});
+  assert.equal(fx.primaryAction,'reduce-or-shorten-masking-fx');
+  assert.equal(fx.secondaryAction,'move-fx-away-from-critical-call-or-accent');
+  assert.equal(fx.severity,'low');
+  assert(Math.abs(fx.scoreDeficit-.05)<1e-9);
+  assert.equal(clarityCorrectionGuidance(null),null);
+}
+{
   const section=sectionClarity();
   const issues=sectionClarityIssues(section);
   assert.equal(issues.length,2);
@@ -65,13 +79,16 @@ function sectionClarity(){
   assert.equal(issues[0].focusEndSeconds,96.7);
   assert.equal(issues[0].focusScore,.52);
   assert.equal(issues[0].focusMinScore,.72);
+  assert.equal(issues[0].correctionGuidance.primaryAction,'lower-local-music-bed');
+  assert.equal(issues[0].correctionGuidance.advisoryOnly,true);
   assert.equal(issues[1].focusKind,'fx');
   assert.equal(issues[1].focusStartSeconds,145.3);
   assert.equal(issues[1].focusEndSeconds,145.55);
   assert.equal(issues[1].focusScore,.49);
   assert.equal(issues[1].focusMinScore,.68);
+  assert.equal(issues[1].correctionGuidance.primaryAction,'reduce-or-shorten-masking-fx');
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview(),metrics:metrics({sectionClarity:section})});
-  assert.equal(result.version,5);
+  assert.equal(result.version,6);
   assert.equal(result.status,'review-required');
   assert(result.riskFlags.includes('final-section-clarity-failed'));
   assert(result.recommendations.includes('resolve-section-clarity-before-final-master'));
@@ -81,6 +98,7 @@ function sectionClarity(){
   assert.deepEqual(result.sectionIssues.map(issue=>issue.focusStartSeconds),[96.2,145.3]);
   assert.deepEqual(result.sectionIssues.map(issue=>issue.focusScore),[.52,.49]);
   assert.deepEqual(result.sectionIssues.map(issue=>issue.focusMinScore),[.72,.68]);
+  assert.deepEqual(result.sectionIssues.map(issue=>issue.correctionGuidance.kind),['voiceover','fx']);
 }
 {
   const fallback={kind:'cheer-competition-master-section-clarity',summary:{status:'review-required'},sections:[{id:'dance',label:'Dance',start:82.5,end:111,status:'review-required',voiceover:{ready:false,score:.61},fx:{ready:null,score:null},riskFlags:['section-voiceover-clarity-failed']}]};
@@ -88,6 +106,7 @@ function sectionClarity(){
   assert.equal(issue.focusStartSeconds,82.5,'legacy section clarity without weakestItem must fall back safely to section start');
   assert.equal(issue.focusScore,null,'legacy section clarity without weakestItem must not invent a diagnostic score');
   assert.equal(issue.focusMinScore,null,'legacy section clarity without weakestItem must not invent a diagnostic threshold');
+  assert.equal(issue.correctionGuidance,null,'legacy section clarity without a precise weakest focus must not invent correction guidance');
 }
 {
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview('review-required',[{type:'pre-master-hold'}]),metrics:metrics()});
