@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const {formatFlagLabel,formatSectionLabel,collectRisks,compareFinalChecks}=require('../competition-master-final-check-history.js');
+const {formatFlagLabel,formatSectionLabel,formatRiskStatus,collectRisks,compareFinalChecks}=require('../competition-master-final-check-history.js');
 
 const before={
   riskFlags:['final-true-peak-headroom-failed','final-section-clarity-failed'],
@@ -22,6 +22,10 @@ assert.equal(formatFlagLabel('final-voiceover-clarity-unmeasured'),'Voiceover cl
 assert.equal(formatFlagLabel('final-custom-risk'),'Custom risk','unknown final-check flags must still get a readable fallback label');
 assert.equal(formatSectionLabel({label:'Dance',focusKind:'voiceover'}),'Dance · voiceover');
 assert.equal(formatSectionLabel({label:'Ending',focusKind:'fx'}),'Ending · FX');
+assert.equal(formatRiskStatus({label:'Dance · voiceover'},'removed'),'Dance · voiceover — korjattu');
+assert.equal(formatRiskStatus({label:'True peak / headroom'},'remaining'),'True peak / headroom — edelleen estää kilpailumasterin');
+assert.equal(formatRiskStatus({label:'Dynamiikka'},'added'),'Dynamiikka — uusi riski — tarkista');
+assert.equal(formatRiskStatus({label:'Tunnettu'},'future-state'),'Tunnettu — tila muuttui','unknown future states must degrade safely');
 
 const collected=collectRisks(before);
 assert.equal(collected.length,4,'global and section-specific risks must both be tracked');
@@ -52,14 +56,15 @@ assert.ok(/previousFinalCheck=mix\.getLastCompetitionMasterFinalCheck/.test(refr
 assert.ok(/previousFinalCheck,/.test(refreshSource),'refresh event must carry the previous final-check snapshot');
 assert.ok(/status!=='refreshed'/.test(historySource)&&/current-project-offline-render/.test(historySource)&&/nonDestructive!==true/.test(historySource),'history must accept only completed non-destructive current-project refreshes');
 assert.ok(/Poistuneet riskit/.test(historySource)&&/Jäljellä olevat riskit/.test(historySource)&&/Uudet riskit/.test(historySource),'history UI must name each before/after risk group');
-assert.ok(/li\.textContent=item\.label/.test(historySource),'risk details must be rendered as text, not injected HTML');
+assert.ok(/removed:'korjattu'/.test(historySource)&&/remaining:'edelleen estää kilpailumasterin'/.test(historySource)&&/added:'uusi riski — tarkista'/.test(historySource),'history must explain what each risk state means to the user');
+assert.ok(/li\.textContent=formatRiskStatus\(item,state\)/.test(historySource),'risk impact details must be rendered as text, not injected HTML');
 assert.ok(!/innerHTML\s*=/.test(historySource),'history must not render risk labels through innerHTML');
 assert.ok(!/renderProject|measureCompetitionMaster|measureCompetitionClarity|evaluateCompetitionMasterReadiness/.test(historySource),'history must not render or measure audio');
 assert.ok(!/normalize|DynamicsCompressor|createGain|applyMasterHeadroom|encodeWav/i.test(historySource),'history must not perform mastering or export processing');
 assert.ok(!/finalCheck\.status\s*=|riskFlags\s*=|sectionIssues\s*=/.test(historySource),'history must not mutate final-check decisions');
-assert.ok(/competition-master-final-check-history\.js\?v=5\.0p3m/.test(workflow),'simple workflow must load the history module with an explicit refreshed cache version');
+assert.ok(/competition-master-final-check-history\.js\?v=5\.0p3n/.test(workflow),'simple workflow must load the risk-impact history module with an explicit refreshed cache version');
 const syncIndex=workflow.indexOf('loadCompetitionMasterFinalCheckRefreshUISync();');
 const historyIndex=workflow.indexOf('loadCompetitionMasterFinalCheckHistory();');
 assert.ok(syncIndex>=0&&historyIndex>syncIndex,'history must load after refreshed final-check assessment sync');
 
-console.log('competition-master-final-check-history: named before/after risks are diagnostic and non-destructive');
+console.log('competition-master-final-check-history: named risk impact is diagnostic and non-destructive');
