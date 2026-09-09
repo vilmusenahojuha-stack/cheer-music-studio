@@ -2,13 +2,12 @@
   'use strict';
 
   const PROFILE=Object.freeze({
-    id:'fi-cheer-master-section-clarity-v1',
+    id:'fi-cheer-master-section-clarity-v2',
     minVoiceoverClarityScore:.72,
     minFxClarityScore:.68
   });
 
   const finite=(value,fallback=null)=>{const n=Number(value);return Number.isFinite(n)?n:fallback};
-  const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const round=(value,digits=3)=>Number.isFinite(value)?Number(value.toFixed(digits)):null;
   const array=value=>Array.isArray(value)?value:[];
 
@@ -49,11 +48,29 @@
     return assignments;
   }
 
+  function normalizeWeakestItem(item){
+    if(!item)return null;
+    return {
+      id:item.id??null,
+      start:round(finite(item.start,null),3),
+      end:round(finite(item.end,null),3),
+      score:round(finite(item.score,null),3),
+      sectionOverlapSeconds:round(finite(item.sectionOverlapSeconds,null),3)
+    };
+  }
+
   function summarizeKind(items=[],minScore){
-    const measured=array(items).map(item=>finite(item?.score,null)).filter(Number.isFinite);
-    if(!measured.length)return {score:null,minScore,ready:null,itemsMeasured:0};
-    const score=measured.reduce((sum,value)=>sum+value,0)/measured.length;
-    return {score:round(score,3),minScore,ready:score>=minScore,itemsMeasured:measured.length};
+    const measured=array(items).filter(item=>Number.isFinite(finite(item?.score,null)));
+    if(!measured.length)return {score:null,minScore,ready:null,itemsMeasured:0,weakestItem:null};
+    const score=measured.reduce((sum,item)=>sum+finite(item.score,0),0)/measured.length;
+    const weakest=measured.slice().sort((a,b)=>finite(a.score,1)-finite(b.score,1))[0]||null;
+    return {
+      score:round(score,3),
+      minScore,
+      ready:score>=minScore,
+      itemsMeasured:measured.length,
+      weakestItem:normalizeWeakestItem(weakest)
+    };
   }
 
   function buildSectionClarity(clarity={},sections=[],options={}){
@@ -93,7 +110,7 @@
 
     return {
       kind:'cheer-competition-master-section-clarity',
-      version:1,
+      version:2,
       profile:PROFILE.id,
       stage:'post-voiceover-mix',
       nonDestructive:true,
@@ -109,5 +126,5 @@
     };
   }
 
-  return {PROFILE,normalizeSections,overlapSeconds,assignItems,buildSectionClarity};
+  return {PROFILE,normalizeSections,overlapSeconds,assignItems,summarizeKind,buildSectionClarity};
 });
