@@ -36,6 +36,17 @@
     added:'uusi riski — tarkista'
   });
 
+  function finite(value){
+    if(value===null||value===undefined||value==='')return null;
+    const n=Number(value);
+    return Number.isFinite(n)?n:null;
+  }
+
+  function formatNumber(value,digits=2){
+    const n=finite(value);
+    return n===null?null:n.toFixed(digits);
+  }
+
   function formatFlagLabel(flag){
     if(FLAG_LABELS[flag])return FLAG_LABELS[flag];
     return String(flag||'Tuntematon riski')
@@ -56,11 +67,44 @@
     return 'Tarkista tämän osion clarity ja mittaa täsmälleen sama aikajakso uudelleen.';
   }
 
+  function getFlagMeasurement(flag,finalCheck){
+    const checks=finalCheck?.checks||{};
+    if(flag==='final-true-peak-headroom-failed'){
+      const value=formatNumber(checks.truePeak?.valueDbtp,2),limit=formatNumber(checks.truePeak?.limitDbtp,2);
+      return value!==null&&limit!==null?`${value} dBTP · raja ≤ ${limit} dBTP`:null;
+    }
+    if(flag==='final-dynamics-check-failed'){
+      const value=formatNumber(checks.loudnessRange?.valueLu,1),min=formatNumber(checks.loudnessRange?.minLu,1),max=formatNumber(checks.loudnessRange?.maxLu,1);
+      return value!==null&&min!==null&&max!==null?`${value} LU · tavoite ${min}–${max} LU`:null;
+    }
+    if(flag==='final-section-balance-failed'){
+      const value=formatNumber(checks.sectionBalance?.spreadDb,1),limit=formatNumber(checks.sectionBalance?.maxSpreadDb,1);
+      return value!==null&&limit!==null?`${value} dB · raja ≤ ${limit} dB`:null;
+    }
+    if(flag==='final-voiceover-clarity-failed'){
+      const value=formatNumber(checks.voiceoverClarity?.score,2),limit=formatNumber(checks.voiceoverClarity?.minScore,2);
+      return value!==null&&limit!==null?`${value} · raja ≥ ${limit}`:null;
+    }
+    if(flag==='final-fx-clarity-failed'){
+      const value=formatNumber(checks.fxClarity?.score,2),limit=formatNumber(checks.fxClarity?.minScore,2);
+      return value!==null&&limit!==null?`${value} · raja ≥ ${limit}`:null;
+    }
+    return null;
+  }
+
+  function getSectionMeasurement(issue){
+    const score=formatNumber(issue?.focusScore,2),minScore=formatNumber(issue?.focusMinScore,2);
+    if(score===null||minScore===null)return null;
+    return `${score} · raja ≥ ${minScore}`;
+  }
+
   function formatRiskStatus(item,state){
     const label=item?.label||'Tuntematon riski';
     const suffix=RISK_STATE_SUFFIX[state]||'tila muuttui';
-    const guidance=state==='remaining'||state==='added'?item?.guidance:null;
-    return `${label} — ${suffix}${guidance?` → ${guidance}`:''}`;
+    const active=state==='remaining'||state==='added';
+    const measurement=active&&item?.measurement?` · mitattu ${item.measurement}`:'';
+    const guidance=active?item?.guidance:null;
+    return `${label} — ${suffix}${measurement}${guidance?` → ${guidance}`:''}`;
   }
 
   function sectionRiskKey(issue){
@@ -75,13 +119,13 @@
   function collectRisks(finalCheck){
     const risks=[];
     for(const flag of array(finalCheck?.riskFlags)){
-      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:formatFlagLabel(flag),guidance:FLAG_GUIDANCE[flag]||'Tarkista tämä final-check-riski ennen kilpailumasterin hyväksyntää.',rawLabel:String(flag)});
+      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:formatFlagLabel(flag),guidance:FLAG_GUIDANCE[flag]||'Tarkista tämä final-check-riski ennen kilpailumasterin hyväksyntää.',measurement:getFlagMeasurement(flag,finalCheck),rawLabel:String(flag)});
     }
     for(const issue of array(finalCheck?.sectionIssues)){
       const key=sectionRiskKey(issue);
       if(!key)continue;
       const kind=issue.focusKind||'clarity';
-      risks.push({key,type:'section',label:formatSectionLabel(issue),guidance:getSectionGuidance(issue),sectionId:issue.sectionId||null,kind});
+      risks.push({key,type:'section',label:formatSectionLabel(issue),guidance:getSectionGuidance(issue),measurement:getSectionMeasurement(issue),sectionId:issue.sectionId||null,kind});
     }
     return risks;
   }
@@ -186,6 +230,6 @@
     window.cheerCompetitionMasterFinalCheckHistory={collectRisks,compareFinalChecks,formatRiskStatus,consumeRefresh,renderComparison,getLastComparison:()=>lastComparison};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,FLAG_GUIDANCE,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,getSectionGuidance,formatRiskStatus,collectRisks,compareFinalChecks};
+  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,FLAG_GUIDANCE,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,getSectionGuidance,getFlagMeasurement,getSectionMeasurement,formatRiskStatus,collectRisks,compareFinalChecks};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
