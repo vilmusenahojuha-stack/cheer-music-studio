@@ -46,7 +46,7 @@
       const input=await loadCoreScript('competition-master-input-core.js?v=5.0p2u','competition-master-input',masterInputCore,'Kilpailumasterin input-ydintä ei voitu ladata.');
       const readiness=await loadCoreScript('competition-master-readiness-core.js?v=5.0p2u','competition-master-readiness',masterReadinessCore,'Kilpailumasterin readiness-ydintä ei voitu ladata.');
       const preview=await loadCoreScript('competition-master-preview-core.js?v=5.0p2v','competition-master-preview',masterPreviewCore,'Kilpailumasterin preview-ydintä ei voitu ladata.');
-      const finalCheck=await loadCoreScript('competition-master-final-check-core.js?v=5.0p2w','competition-master-final-check',masterFinalCheckCore,'Kilpailumasterin final-check-ydintä ei voitu ladata.');
+      const finalCheck=await loadCoreScript('competition-master-final-check-core.js?v=5.0p3d','competition-master-final-check',masterFinalCheckCore,'Kilpailumasterin final-check-ydintä ei voitu ladata.');
       const bridge=await loadCoreScript('competition-master-export-readiness-core.js?v=5.0p2u','competition-master-export-readiness',masterExportBridgeCore,'Kilpailumasterin export-readiness-siltaa ei voitu ladata.');
       if(!input?.buildCompetitionMasterInput||!input?.toCompetitionMasterReadinessInput||!readiness?.buildCompetitionMasterReadiness||!preview?.buildCompetitionMasterPreview||!finalCheck?.buildCompetitionMasterFinalCheck||!bridge?.buildExportReadiness)throw new Error('Kilpailumasterin readiness/preview/final-check-ketju ei valmistunut oikein.');
       return{bridge,input,readiness,preview,finalCheck};
