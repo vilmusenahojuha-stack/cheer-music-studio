@@ -20,22 +20,43 @@
   function array(value){return Array.isArray(value)?value:[];}
   function addRisk(set,value,when=true){if(when)set.add(value);}
 
+  function weakestFailedFocus(section){
+    const candidates=[];
+    if(section?.voiceover?.ready===false&&section.voiceover?.weakestItem){
+      const item=section.voiceover.weakestItem;
+      candidates.push({kind:'voiceover',startSeconds:finite(item.start),endSeconds:finite(item.end),score:finite(item.score),minScore:finite(section.voiceover.minScore,PROFILE.minVoiceoverClarityScore)});
+    }
+    if(section?.fx?.ready===false&&section.fx?.weakestItem){
+      const item=section.fx.weakestItem;
+      candidates.push({kind:'fx',startSeconds:finite(item.start),endSeconds:finite(item.end),score:finite(item.score),minScore:finite(section.fx.minScore,PROFILE.minFxClarityScore)});
+    }
+    return candidates.filter(item=>item.startSeconds!==null).sort((a,b)=>(a.score-a.minScore)-(b.score-b.minScore))[0]||null;
+  }
+
   function sectionClarityIssues(sectionClarity){
     if(!sectionClarity||sectionClarity.kind!=='cheer-competition-master-section-clarity')return [];
     return array(sectionClarity.sections)
       .filter(section=>section?.status==='review-required')
-      .map(section=>({
-        sectionId:section.id||null,
-        label:section.label||section.type||section.id||'Section',
-        type:section.type||'section',
-        startSeconds:finite(section.start),
-        endSeconds:finite(section.end),
-        voiceoverFailed:section.voiceover?.ready===false,
-        fxFailed:section.fx?.ready===false,
-        voiceoverScore:finite(section.voiceover?.score),
-        fxScore:finite(section.fx?.score),
-        riskFlags:array(section.riskFlags)
-      }));
+      .map(section=>{
+        const focus=weakestFailedFocus(section);
+        return {
+          sectionId:section.id||null,
+          label:section.label||section.type||section.id||'Section',
+          type:section.type||'section',
+          startSeconds:finite(section.start),
+          endSeconds:finite(section.end),
+          focusKind:focus?.kind||null,
+          focusStartSeconds:focus?.startSeconds??finite(section.start),
+          focusEndSeconds:focus?.endSeconds??finite(section.end),
+          voiceoverFailed:section.voiceover?.ready===false,
+          fxFailed:section.fx?.ready===false,
+          voiceoverScore:finite(section.voiceover?.score),
+          fxScore:finite(section.fx?.score),
+          voiceoverWeakestItem:section.voiceover?.weakestItem||null,
+          fxWeakestItem:section.fx?.weakestItem||null,
+          riskFlags:array(section.riskFlags)
+        };
+      });
   }
 
   function buildCompetitionMasterFinalCheck(input={}){
@@ -146,7 +167,7 @@
     const finalReady=!blockingRisks.some(r=>risks.has(r));
 
     return {
-      version:3,
+      version:4,
       kind:'cheer-competition-master-final-check',
       profile:PROFILE.id,
       advisoryOnly:true,
@@ -184,7 +205,7 @@
     };
   }
 
-  const api={PROFILE,sectionClarityIssues,buildCompetitionMasterFinalCheck};
+  const api={PROFILE,weakestFailedFocus,sectionClarityIssues,buildCompetitionMasterFinalCheck};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerCompetitionMasterFinalCheckCore=api;
 })();
