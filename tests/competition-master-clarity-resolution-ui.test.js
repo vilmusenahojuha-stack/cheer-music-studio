@@ -37,7 +37,7 @@ assert.ok(/Tämä johdettu tila ei muuta finalCheck\.status-arvoa eikä käynnis
 
 assert.ok(!/finalCheck\.status\s*=|sectionIssues\s*=|renderAllowed\s*=\s*true/.test(ui),'resolution UI must not rewrite final-check, section issue arrays or render authorization');
 assert.ok(!/renderProject|applyMasterHeadroom|createGain|DynamicsCompressor|normalize|limit/i.test(ui),'resolution UI must remain non-destructive and must not render or master audio');
-assert.ok(/competition-master-clarity-resolution-ui\.js\?v=5\.0p3h/.test(workflow),'simple workflow must load the resolution UI with the refreshed cache version');
+assert.ok(/competition-master-clarity-resolution-ui\.js\?v=5\.0p3i/.test(workflow),'simple workflow must load the resolution UI with the refreshed cache version');
 assert.ok(/data-competition-master-clarity-resolution-ui/.test(workflow),'resolution UI loader must prevent duplicate script insertion');
 assert.ok(/loadCompetitionMasterAssessment\(\);loadCompetitionMasterClarityResolutionUI\(\)/.test(workflow),'resolution UI must load after the assessment UI so its findings exist before decoration');
 
