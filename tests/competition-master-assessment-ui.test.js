@@ -15,12 +15,14 @@ assert.ok(/Osakohtaiset clarity-havainnot/.test(ui),'assessment UI must provide 
 assert.ok(/sectionIssues/.test(ui),'assessment UI must render section issues produced by competition final-check');
 assert.ok(/voiceover clarity/.test(ui)&&/FX clarity/.test(ui),'assessment UI must identify whether voiceover or FX clarity failed in a cheer section');
 assert.ok(/sectionId/.test(ui)&&/data.*section/i.test(ui),'section-aware findings must retain the source section identity for later editor navigation');
-assert.ok(/startSeconds/.test(ui)&&/data.*start/i.test(ui),'section-aware findings must retain section timing for editor navigation');
+assert.ok(/focusStartSeconds/.test(ui)&&/data.*focus/i.test(ui),'section-aware findings must retain the weakest measured clarity-window timing');
+assert.ok(/focusKind/.test(ui),'section findings must retain whether the weakest focus is voiceover or FX');
 assert.ok(/focusSectionIssue/.test(ui),'assessment UI must expose a focused section navigation action');
 assert.ok(/cheerAudioEditor/.test(ui)&&/\.seek\(/.test(ui),'section navigation must use the existing audio editor seek API');
 assert.ok(/audioWorkspace/.test(ui)&&/scrollIntoView/.test(ui),'section navigation must bring the audio workspace into view');
 assert.ok(/competition-master-section-jump/.test(ui)&&/addEventListener\('click'/.test(ui),'timed section findings must be rendered as explicit clickable controls');
-assert.ok(/Siirry aikajanalle/.test(ui),'section navigation must have an accessible Finnish action label');
+assert.ok(/heikoimpaan mitattuun voiceover- tai FX-kohtaan/.test(ui),'UI must explain that findings jump to the precise measured problem window');
+assert.ok(/Siirry heikoimpaan/.test(ui),'precise clarity navigation must have an accessible Finnish action label');
 assert.ok(/Final-check ei löytänyt kilpailumasteria estäviä riskejä/.test(ui),'approved final-check must have a clear non-destructive user-facing state');
 assert.ok(/ei-tuhoava tarkistus/.test(ui),'assessment UI must clearly communicate non-destructive behavior');
 assert.ok(!/applyMasterHeadroom|fromAudioBuffer|renderProject|createGain|DynamicsCompressor|normalize/i.test(ui.replace(/normalisoi/g,'')),'assessment UI must not perform audio mastering or rendering');
@@ -29,4 +31,4 @@ assert.ok(/competition-master-section-clarity-core\.js/.test(workflow),'simple w
 assert.ok(/data-competition-master-section-clarity/.test(workflow),'section-aware clarity loader must prevent duplicate script insertion');
 assert.ok(/competition-master-assessment-ui\.js/.test(workflow),'simple workflow must load the assessment UI module');
 assert.ok(/data-competition-master-assessment/.test(workflow),'assessment UI loader must prevent duplicate script insertion');
-console.log('competition-master-assessment-ui: section-aware final-check findings navigate safely to the audio editor without modifying audio');
+console.log('competition-master-assessment-ui: final-check findings navigate to the weakest measured clarity window without modifying audio');
