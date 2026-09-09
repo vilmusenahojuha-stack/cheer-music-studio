@@ -36,6 +36,18 @@
     if(guidance.kind==='fx')return 'Korjausehdotus: kevennä tai lyhennä peittävää FX:ää. Siirrä sitä tarvittaessa kauemmas kriittisestä huudosta, iskusta tai musiikin pääaksentista.';
     return '';
   };
+  const recheckResultLabel=result=>{
+    if(!result)return '';
+    const before=fmt(result.previousScore,2),after=fmt(result.currentScore,2),limit=fmt(result.minScore,2);
+    const delta=Number(result.improvement);
+    const change=Number.isFinite(delta)?` (${delta>=0?'+':''}${delta.toFixed(2)})`:'';
+    if(result.verdict==='passed')return `${before} → ${after}${change} — hyväksytty, raja ${limit}`;
+    if(result.verdict==='improved')return `${before} → ${after}${change} — parani, mutta on vielä alle rajan ${limit}`;
+    if(result.verdict==='regressed')return `${before} → ${after}${change} — clarity heikkeni, raja ${limit}`;
+    if(result.verdict==='still-below-target')return `${before} → ${after}${change} — edelleen alle rajan ${limit}`;
+    if(result.currentScore!==null&&result.currentScore!==undefined)return `${before} → ${after}${change} — mitattu uudelleen`;
+    return 'Uudelleenmittaus ei tuottanut käyttökelpoista clarity-arvoa.';
+  };
 
   function snapshot(){
     const api=window.cheerMixExport;
@@ -57,7 +69,7 @@
     panel.id='competitionMasterAssessment';
     panel.className='competition-master-assessment';
     panel.setAttribute('aria-live','polite');
-    panel.innerHTML=`<div class="competition-master-assessment-head"><div><h3>Kilpailumasterin arvio</h3><p>Suomen kilpailukäyttöön tarkoitettu ei-tuhoava tarkistus. Arvio ei normalisoi, kompressoi tai limitöi audiota automaattisesti.</p></div><span id="competitionMasterAssessmentBadge" class="competition-master-assessment-badge">Ei vielä arvioitu</span></div><div class="competition-master-assessment-grid"><div><small>True peak</small><strong id="competitionMasterAssessmentTp">—</strong></div><div><small>Integrated loudness</small><strong id="competitionMasterAssessmentLufs">—</strong></div><div><small>LRA</small><strong id="competitionMasterAssessmentLra">—</strong></div></div><div id="competitionMasterAssessmentAdvice" class="competition-master-assessment-advice">Arvio muodostuu 24-bit WAV -viennin yhteydessä valmiista post-voiceover-miksistä.</div><div id="competitionMasterSectionIssues" class="competition-master-section-issues" hidden><strong>Osakohtaiset clarity-havainnot</strong><p class="competition-master-section-hint">Avaa havainto siirtyäksesi suoraan heikoimpaan mitattuun voiceover- tai FX-kohtaan aikajanalla. Mittausikkuna korostetaan hetkellisesti ja sen yhteydessä näytetään clarity-score sekä hyväksymisraja. Korjausehdotukset ovat neuvoa-antavia eivätkä muuta audiota automaattisesti.</p><ul id="competitionMasterSectionIssueList"></ul></div>`;
+    panel.innerHTML=`<div class="competition-master-assessment-head"><div><h3>Kilpailumasterin arvio</h3><p>Suomen kilpailukäyttöön tarkoitettu ei-tuhoava tarkistus. Arvio ei normalisoi, kompressoi tai limitöi audiota automaattisesti.</p></div><span id="competitionMasterAssessmentBadge" class="competition-master-assessment-badge">Ei vielä arvioitu</span></div><div class="competition-master-assessment-grid"><div><small>True peak</small><strong id="competitionMasterAssessmentTp">—</strong></div><div><small>Integrated loudness</small><strong id="competitionMasterAssessmentLufs">—</strong></div><div><small>LRA</small><strong id="competitionMasterAssessmentLra">—</strong></div></div><div id="competitionMasterAssessmentAdvice" class="competition-master-assessment-advice">Arvio muodostuu 24-bit WAV -viennin yhteydessä valmiista post-voiceover-miksistä.</div><div id="competitionMasterSectionIssues" class="competition-master-section-issues" hidden><strong>Osakohtaiset clarity-havainnot</strong><p class="competition-master-section-hint">Avaa havainto siirtyäksesi suoraan heikoimpaan mitattuun voiceover- tai FX-kohtaan aikajanalla. Mittausikkuna korostetaan hetkellisesti ja sen yhteydessä näytetään clarity-score sekä hyväksymisraja. Tee korjaus itse ja valitse sitten Mittaa uudelleen: sovellus renderöi nykyisen projektin tarkistusta varten ja mittaa täsmälleen saman ikkunan uudelleen ilman WAV-vientiä tai automaattista korjausta.</p><ul id="competitionMasterSectionIssueList"></ul></div>`;
     exportPanel.insertAdjacentElement('afterend',panel);
     return panel;
   }
@@ -82,6 +94,35 @@
     return true;
   }
 
+  async function recheckSectionIssue(issue,button,output){
+    const api=window.cheerCompetitionMasterClarityRecheck;
+    if(!api?.recheck){
+      if(output){output.textContent='Uudelleenmittaus ei ole käytettävissä.';output.dataset.verdict='unavailable';}
+      return null;
+    }
+    if(button){button.disabled=true;button.textContent='Mitataan…';}
+    if(output){output.textContent='Renderöidään nykyinen projekti ja mitataan sama clarity-ikkuna uudelleen…';output.dataset.verdict='running';}
+    try{
+      const result=await api.recheck(issue);
+      if(output){output.textContent=recheckResultLabel(result);output.dataset.verdict=result?.verdict||'measured';}
+      const start=Number(result?.startSeconds),end=Number(result?.endSeconds);
+      if(Number.isFinite(start)&&Number.isFinite(end)&&end>start){
+        window.cheerAudioEditor?.highlightRange?.(start,end,{
+          kind:result?.focusKind||issue?.focusKind||'clarity',
+          score:result?.currentScore,
+          minScore:result?.minScore,
+          durationMs:6000
+        });
+      }
+      return result;
+    }catch(error){
+      if(output){output.textContent=`Uudelleenmittaus epäonnistui: ${error?.message||'tuntematon virhe'}`;output.dataset.verdict='error';}
+      return null;
+    }finally{
+      if(button){button.disabled=false;button.textContent='Mittaa uudelleen';}
+    }
+  }
+
   function renderSectionIssues(finalCheck){
     const box=q('#competitionMasterSectionIssues'),list=q('#competitionMasterSectionIssueList');
     if(!box||!list)return;
@@ -94,6 +135,7 @@
       const sectionStart=Number(issue?.startSeconds);
       const focusStart=Number.isFinite(Number(issue?.focusStartSeconds))?Number(issue.focusStartSeconds):sectionStart;
       const focusEnd=Number(issue?.focusEndSeconds);
+      const hasPreciseFocus=Number.isFinite(focusStart)&&Number.isFinite(focusEnd)&&focusEnd>focusStart&&(issue?.focusKind==='voiceover'||issue?.focusKind==='fx');
       if(Number.isFinite(sectionStart))item.dataset.startSeconds=String(sectionStart);
       if(Number.isFinite(focusStart)){
         item.dataset.focusSeconds=String(focusStart);
@@ -118,6 +160,22 @@
         guidance.setAttribute('role','note');
         item.appendChild(guidance);
       }
+      if(hasPreciseFocus){
+        const actions=document.createElement('div');
+        actions.className='competition-master-section-recheck';
+        const recheckButton=document.createElement('button');
+        recheckButton.type='button';
+        recheckButton.className='competition-master-recheck-button';
+        recheckButton.textContent='Mittaa uudelleen';
+        recheckButton.setAttribute('aria-label',`${issue?.label||issue?.type||'Osio'}: mittaa sama ${issue.focusKind==='voiceover'?'voiceover':'FX'} clarity -ikkuna uudelleen nykyisestä miksistä`);
+        const output=document.createElement('span');
+        output.className='competition-master-recheck-result';
+        output.setAttribute('role','status');
+        output.setAttribute('aria-live','polite');
+        recheckButton.addEventListener('click',()=>recheckSectionIssue(issue,recheckButton,output));
+        actions.append(recheckButton,output);
+        item.appendChild(actions);
+      }
       list.appendChild(item);
     });
     box.hidden=false;
@@ -138,7 +196,7 @@
     if(advice){
       if(!metrics)advice.textContent='Arvio muodostuu 24-bit WAV -viennin yhteydessä valmiista post-voiceover-miksistä.';
       else if(finalCheck?.status==='preview-approved')advice.textContent='Final-check ei löytänyt kilpailumasteria estäviä riskejä. Arvio on edelleen ei-tuhoava eikä käynnistä masterointia automaattisesti.';
-      else if(finalCheck?.sectionIssues?.length)advice.textContent='Final-check löysi osakohtaisia clarity-kohtia. Avaa havainto, kuuntele korostettu mittausikkuna ja käytä paikallista korjausehdotusta ennen lopullista kilpailumasteria.';
+      else if(finalCheck?.sectionIssues?.length)advice.textContent='Final-check löysi osakohtaisia clarity-kohtia. Avaa havainto, kuuntele korostettu mittausikkuna, tee paikallinen korjaus ja mittaa sama kohta uudelleen ennen lopullista kilpailumasteria.';
       else if(preview?.status==='blocked')advice.textContent=`Kilpailumasterin arvio on estetty: ${preview.reason||readiness?.reason||'puuttuva valmiustieto'}.`;
       else advice.textContent=actionLabel(preview?.topPriority||preview?.actions?.[0]);
     }
@@ -156,10 +214,10 @@
     if(q('#competitionMasterAssessmentStyle'))return;
     const style=document.createElement('style');
     style.id='competitionMasterAssessmentStyle';
-    style.textContent=`.competition-master-assessment{margin-top:10px;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:12px;background:rgba(15,23,42,.32)}.competition-master-assessment-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.competition-master-assessment h3{margin:0 0 4px}.competition-master-assessment p{margin:0;opacity:.72;max-width:780px}.competition-master-assessment-badge{white-space:nowrap;padding:5px 9px;border-radius:999px;background:rgba(148,163,184,.12);font-size:.82rem}.competition-master-assessment-badge[data-status="preview-ready"],.competition-master-assessment-badge[data-status="preview-approved"]{background:rgba(34,197,94,.14)}.competition-master-assessment-badge[data-status="review-required"]{background:rgba(245,158,11,.16)}.competition-master-assessment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}.competition-master-assessment-grid>div{padding:10px;border-radius:9px;background:rgba(148,163,184,.07)}.competition-master-assessment-grid small{display:block;opacity:.64;margin-bottom:3px}.competition-master-assessment-grid strong{font-size:1.05rem}.competition-master-assessment-advice{margin-top:10px;font-size:.92rem;line-height:1.45}.competition-master-section-issues{margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,.14)}.competition-master-section-issues .competition-master-section-hint{margin-top:4px;font-size:.82rem}.competition-master-section-issues ul{margin:7px 0 0;padding-left:20px}.competition-master-section-issues li{margin:7px 0;line-height:1.4}.competition-master-section-jump{appearance:none;border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:3px 5px;margin:-3px -5px;border-radius:6px;cursor:pointer}.competition-master-section-jump:hover,.competition-master-section-jump:focus-visible{background:rgba(148,163,184,.12);outline:1px solid rgba(148,163,184,.24)}.competition-master-section-guidance{margin:3px 0 0 5px;font-size:.82rem;line-height:1.4;opacity:.78;max-width:820px}@media(max-width:700px){.competition-master-assessment-head{flex-direction:column}.competition-master-assessment-grid{grid-template-columns:1fr}}`;
+    style.textContent=`.competition-master-assessment{margin-top:10px;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:12px;background:rgba(15,23,42,.32)}.competition-master-assessment-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.competition-master-assessment h3{margin:0 0 4px}.competition-master-assessment p{margin:0;opacity:.72;max-width:780px}.competition-master-assessment-badge{white-space:nowrap;padding:5px 9px;border-radius:999px;background:rgba(148,163,184,.12);font-size:.82rem}.competition-master-assessment-badge[data-status="preview-ready"],.competition-master-assessment-badge[data-status="preview-approved"]{background:rgba(34,197,94,.14)}.competition-master-assessment-badge[data-status="review-required"]{background:rgba(245,158,11,.16)}.competition-master-assessment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}.competition-master-assessment-grid>div{padding:10px;border-radius:9px;background:rgba(148,163,184,.07)}.competition-master-assessment-grid small{display:block;opacity:.64;margin-bottom:3px}.competition-master-assessment-grid strong{font-size:1.05rem}.competition-master-assessment-advice{margin-top:10px;font-size:.92rem;line-height:1.45}.competition-master-section-issues{margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,.14)}.competition-master-section-issues .competition-master-section-hint{margin-top:4px;font-size:.82rem}.competition-master-section-issues ul{margin:7px 0 0;padding-left:20px}.competition-master-section-issues li{margin:7px 0;line-height:1.4}.competition-master-section-jump{appearance:none;border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:3px 5px;margin:-3px -5px;border-radius:6px;cursor:pointer}.competition-master-section-jump:hover,.competition-master-section-jump:focus-visible{background:rgba(148,163,184,.12);outline:1px solid rgba(148,163,184,.24)}.competition-master-section-guidance{margin:3px 0 0 5px;font-size:.82rem;line-height:1.4;opacity:.78;max-width:820px}.competition-master-section-recheck{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 0 5px}.competition-master-recheck-button{appearance:none;border:1px solid rgba(148,163,184,.28);background:rgba(148,163,184,.09);color:inherit;border-radius:7px;padding:5px 9px;font:inherit;font-size:.82rem;cursor:pointer}.competition-master-recheck-button:hover,.competition-master-recheck-button:focus-visible{background:rgba(148,163,184,.16);outline:1px solid rgba(148,163,184,.28)}.competition-master-recheck-button:disabled{cursor:progress;opacity:.62}.competition-master-recheck-result{font-size:.82rem;line-height:1.4;opacity:.84}.competition-master-recheck-result[data-verdict="passed"]{font-weight:650}@media(max-width:700px){.competition-master-assessment-head{flex-direction:column}.competition-master-assessment-grid{grid-template-columns:1fr}}`;
     document.head.appendChild(style);
   }
 
-  function init(){addStyle();ensurePanel();observeExport();render();window.cheerCompetitionMasterAssessment={render,snapshot,sectionIssueLabel,correctionGuidanceLabel,focusSectionIssue};}
+  function init(){addStyle();ensurePanel();observeExport();render();window.cheerCompetitionMasterAssessment={render,snapshot,sectionIssueLabel,correctionGuidanceLabel,recheckResultLabel,focusSectionIssue,recheckSectionIssue};}
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
