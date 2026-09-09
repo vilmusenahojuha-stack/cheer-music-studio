@@ -25,10 +25,20 @@ assert.ok(/data-open|dataset\.open/.test(ui)&&/dataset\.resolved/.test(ui)&&/dat
 assert.ok(/Laskuri ei muuta kilpailumasterin final-check-hyväksyntää/.test(ui),'summary accessibility text must explicitly state that counting does not approve the global final check');
 assert.ok(/updateSummary\(\)/.test(ui),'summary must refresh after recheck state changes');
 
-assert.ok(!/getLastCompetitionMasterFinalCheck|finalCheck\s*=|sectionIssues\s*=|preview-approved/.test(ui),'resolution UI must not rewrite final-check, section issue arrays or global approval state');
+assert.ok(/FINAL_BLOCKING_RISKS/.test(ui),'derived final-check gate must use an explicit allowlist of blocking final-check risks');
+assert.ok(/RECHECK_CLEARABLE_CLARITY_RISKS/.test(ui)&&/final-voiceover-clarity-failed/.test(ui)&&/final-fx-clarity-failed/.test(ui)&&/final-section-clarity-failed/.test(ui),'only measured clarity failures may be cleared by safe same-window rechecks');
+assert.ok(/UNMEASURED_CLARITY_RISKS/.test(ui)&&/final-voiceover-clarity-unmeasured/.test(ui)&&/final-fx-clarity-unmeasured/.test(ui),'missing clarity measurements must remain blockers even when measured section risks are resolved');
+assert.ok(/function clarityGateState/.test(ui)&&/counts\.total>0&&counts\.open===0/.test(ui),'clarity gate may become ready only when every measured section clarity risk is resolved');
+assert.ok(/effectiveBlockingRisks/.test(ui)&&/otherBlockingRisks/.test(ui),'derived gate must retain non-clarity blockers separately from safely resolved clarity failures');
+assert.ok(/finalReadyAfterClarityRecheck:clarityReady&&effectiveBlockingRisks\.length===0/.test(ui),'derived readiness may be true only when clarity is clean and no other final-check blocker remains');
+assert.ok(/Clarity tarkistettu – \$\{gate\.otherBlockingRisks\.length\} muuta final-check-estettä jäljellä/.test(ui),'UI must tell the user when clarity is clean but other final-check blockers remain');
+assert.ok(/clarity-osuus on puhdas ja final-check voidaan arvioida uudelleen/.test(ui),'UI must distinguish clarity-clean state from automatic master approval');
+assert.ok(/Tämä johdettu tila ei muuta finalCheck\.status-arvoa eikä käynnistä kilpailumasteria/.test(ui),'accessibility text must state that derived readiness does not mutate final-check or start mastering');
+
+assert.ok(!/finalCheck\.status\s*=|sectionIssues\s*=|renderAllowed\s*=\s*true/.test(ui),'resolution UI must not rewrite final-check, section issue arrays or render authorization');
 assert.ok(!/renderProject|applyMasterHeadroom|createGain|DynamicsCompressor|normalize|limit/i.test(ui),'resolution UI must remain non-destructive and must not render or master audio');
 assert.ok(/competition-master-clarity-resolution-ui\.js\?v=5\.0p3h/.test(workflow),'simple workflow must load the resolution UI with the refreshed cache version');
 assert.ok(/data-competition-master-clarity-resolution-ui/.test(workflow),'resolution UI loader must prevent duplicate script insertion');
 assert.ok(/loadCompetitionMasterAssessment\(\);loadCompetitionMasterClarityResolutionUI\(\)/.test(workflow),'resolution UI must load after the assessment UI so its findings exist before decoration');
 
-console.log('competition-master-clarity-resolution-ui: open and safely resolved clarity risks are counted without changing global final-check approval');
+console.log('competition-master-clarity-resolution-ui: safe rechecks derive a clarity-only final-check gate while preserving every unrelated blocker');
