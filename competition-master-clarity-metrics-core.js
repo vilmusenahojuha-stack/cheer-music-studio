@@ -105,6 +105,44 @@
     };
   }
 
+  function recheckFocusedClarity(buffer,focus={},options={}){
+    const kind=focus?.kind==='fx'?'fx':focus?.kind==='voiceover'?'voiceover':null;
+    const start=finite(focus?.startSeconds,finite(focus?.start));
+    const end=finite(focus?.endSeconds,finite(focus?.end));
+    const previousScore=finite(focus?.score);
+    const minScore=finite(focus?.minScore);
+    const base={
+      kind:'cheer-competition-master-clarity-recheck',
+      version:1,
+      method:'post-mix-local-rms-contrast-v1',
+      nonDestructive:true,
+      sameWindow:true,
+      focusKind:kind,
+      startSeconds:start,
+      endSeconds:end,
+      previousScore,
+      minScore,
+      currentScore:null,
+      improvement:null,
+      ready:null,
+      verdict:'unavailable',
+      measurement:null
+    };
+    if(!kind||start===null||end===null||end<=start)return base;
+    const measurement=measureWindowSet(buffer,[{id:'clarity-recheck-focus',start,end}],kind,options?.[kind]||options||{});
+    const item=measurement.items?.[0]||null;
+    const currentScore=finite(item?.score);
+    if(currentScore===null)return {...base,measurement};
+    const improvement=previousScore===null?null:round(currentScore-previousScore,3);
+    const ready=minScore===null?null:currentScore>=minScore;
+    let verdict='measured';
+    if(ready===true)verdict='passed';
+    else if(improvement!==null&&improvement>0.01)verdict='improved';
+    else if(improvement!==null&&improvement<-0.01)verdict='regressed';
+    else if(ready===false)verdict='still-below-target';
+    return {...base,currentScore,improvement,ready,verdict,measurement};
+  }
+
   function mergeIntoMasterMetrics(metrics,clarity){
     if(!metrics||typeof metrics!=='object')return metrics;
     if(!clarity||clarity.kind!=='cheer-competition-master-clarity-metrics')return {...metrics};
@@ -117,5 +155,5 @@
     };
   }
 
-  return {PROFILE,resolveSectionClarityCore,measureWindowSet,measureCompetitionClarity,mergeIntoMasterMetrics};
+  return {PROFILE,resolveSectionClarityCore,measureWindowSet,measureCompetitionClarity,recheckFocusedClarity,mergeIntoMasterMetrics};
 });
