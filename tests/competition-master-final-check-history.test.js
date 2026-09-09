@@ -57,7 +57,7 @@ assert.ok(!/innerHTML\s*=/.test(historySource),'history must not render risk lab
 assert.ok(!/renderProject|measureCompetitionMaster|measureCompetitionClarity|evaluateCompetitionMasterReadiness/.test(historySource),'history must not render or measure audio');
 assert.ok(!/normalize|DynamicsCompressor|createGain|applyMasterHeadroom|encodeWav/i.test(historySource),'history must not perform mastering or export processing');
 assert.ok(!/finalCheck\.status\s*=|riskFlags\s*=|sectionIssues\s*=/.test(historySource),'history must not mutate final-check decisions');
-assert.ok(/competition-master-final-check-history\.js\?v=5\.0p3l/.test(workflow),'simple workflow must load the history module with an explicit cache version');
+assert.ok(/competition-master-final-check-history\.js\?v=5\.0p3m/.test(workflow),'simple workflow must load the history module with an explicit refreshed cache version');
 const syncIndex=workflow.indexOf('loadCompetitionMasterFinalCheckRefreshUISync();');
 const historyIndex=workflow.indexOf('loadCompetitionMasterFinalCheckHistory();');
 assert.ok(syncIndex>=0&&historyIndex>syncIndex,'history must load after refreshed final-check assessment sync');
