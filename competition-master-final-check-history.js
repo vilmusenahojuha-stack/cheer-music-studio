@@ -17,6 +17,19 @@
     'final-preview-hold-active':'Master-preview hold',
     'final-upstream-review-required':'Aiempi tarkistus vaatii huomiota'
   });
+  const FLAG_GUIDANCE=Object.freeze({
+    'final-true-peak-headroom-failed':'Tarkista headroom ja kovimmat transientit ennen uutta final-checkiä.',
+    'final-dynamics-check-failed':'Tarkista dynamiikka: vältä liian puristunutta tai epätasaista kokonaisuutta.',
+    'final-section-balance-failed':'Tarkista osioiden keskinäiset voimakkuudet ja energiasiirtymät.',
+    'final-section-peak-data-incomplete':'Mittaa kaikkien kilpailumixin osioiden peak-arvot uudelleen.',
+    'final-voiceover-clarity-unmeasured':'Mittaa voiceover-clarity ennen kilpailumasterin hyväksyntää.',
+    'final-voiceover-clarity-failed':'Selkeytä voiceoveria suhteessa musiikkiin ja mittaa sama kohta uudelleen.',
+    'final-fx-clarity-unmeasured':'Mittaa FX-clarity ennen kilpailumasterin hyväksyntää.',
+    'final-fx-clarity-failed':'Selkeytä cheer-FX:ää suhteessa musiikkiin ja mittaa sama kohta uudelleen.',
+    'final-section-clarity-failed':'Tarkista osion voiceover- ja FX-erottuvuus ennen uutta final-checkiä.',
+    'final-preview-hold-active':'Kuuntele master-preview ja ratkaise siinä merkitty hold ennen hyväksyntää.',
+    'final-upstream-review-required':'Palaa aiempaan tarkistukseen ja ratkaise siellä oleva esto ensin.'
+  });
   const RISK_STATE_SUFFIX=Object.freeze({
     removed:'korjattu',
     remaining:'edelleen estää kilpailumasterin',
@@ -37,10 +50,17 @@
     return `${section} · ${kind}`;
   }
 
+  function getSectionGuidance(issue){
+    if(issue?.focusKind==='voiceover')return 'Säädä tämän osion voiceoverin ja musiikin suhdetta, sitten mittaa sama aikajakso uudelleen.';
+    if(issue?.focusKind==='fx')return 'Säädä tämän osion cheer-FX:n ja musiikin suhdetta, sitten mittaa sama aikajakso uudelleen.';
+    return 'Tarkista tämän osion clarity ja mittaa täsmälleen sama aikajakso uudelleen.';
+  }
+
   function formatRiskStatus(item,state){
     const label=item?.label||'Tuntematon riski';
     const suffix=RISK_STATE_SUFFIX[state]||'tila muuttui';
-    return `${label} — ${suffix}`;
+    const guidance=state==='remaining'||state==='added'?item?.guidance:null;
+    return `${label} — ${suffix}${guidance?` → ${guidance}`:''}`;
   }
 
   function sectionRiskKey(issue){
@@ -55,13 +75,13 @@
   function collectRisks(finalCheck){
     const risks=[];
     for(const flag of array(finalCheck?.riskFlags)){
-      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:formatFlagLabel(flag),rawLabel:String(flag)});
+      if(flag)risks.push({key:`flag:${flag}`,type:'flag',label:formatFlagLabel(flag),guidance:FLAG_GUIDANCE[flag]||'Tarkista tämä final-check-riski ennen kilpailumasterin hyväksyntää.',rawLabel:String(flag)});
     }
     for(const issue of array(finalCheck?.sectionIssues)){
       const key=sectionRiskKey(issue);
       if(!key)continue;
       const kind=issue.focusKind||'clarity';
-      risks.push({key,type:'section',label:formatSectionLabel(issue),sectionId:issue.sectionId||null,kind});
+      risks.push({key,type:'section',label:formatSectionLabel(issue),guidance:getSectionGuidance(issue),sectionId:issue.sectionId||null,kind});
     }
     return risks;
   }
@@ -166,6 +186,6 @@
     window.cheerCompetitionMasterFinalCheckHistory={collectRisks,compareFinalChecks,formatRiskStatus,consumeRefresh,renderComparison,getLastComparison:()=>lastComparison};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,formatRiskStatus,collectRisks,compareFinalChecks};
+  if(typeof module!=='undefined'&&module.exports)module.exports={FLAG_LABELS,FLAG_GUIDANCE,RISK_STATE_SUFFIX,formatFlagLabel,formatSectionLabel,getSectionGuidance,formatRiskStatus,collectRisks,compareFinalChecks};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
