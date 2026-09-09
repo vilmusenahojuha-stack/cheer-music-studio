@@ -48,6 +48,8 @@
           focusKind:focus?.kind||null,
           focusStartSeconds:focus?.startSeconds??finite(section.start),
           focusEndSeconds:focus?.endSeconds??finite(section.end),
+          focusScore:focus?.score??null,
+          focusMinScore:focus?.minScore??null,
           voiceoverFailed:section.voiceover?.ready===false,
           fxFailed:section.fx?.ready===false,
           voiceoverScore:finite(section.voiceover?.score),
@@ -167,7 +169,7 @@
     const finalReady=!blockingRisks.some(r=>risks.has(r));
 
     return {
-      version:4,
+      version:5,
       kind:'cheer-competition-master-final-check',
       profile:PROFILE.id,
       advisoryOnly:true,
