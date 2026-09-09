@@ -65,6 +65,8 @@ jobs:
         run: node tests/competition-master-clarity-resolution-ui.test.js
       - name: Competition final-check refresh tests
         run: node tests/competition-master-final-check-refresh.test.js
+      - name: Competition final-check refreshed assessment sync tests
+        run: node tests/competition-master-final-check-refresh-ui-sync.test.js
       - name: Competition master timeline highlight tests
         run: node tests/competition-master-editor-highlight.test.js
       - name: Pitch-preserving time-stretch tests
