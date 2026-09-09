@@ -15,9 +15,9 @@ function sectionClarity(){
     kind:'cheer-competition-master-section-clarity',
     summary:{status:'review-required',sectionsMeasured:3,sectionsReviewRequired:2,weakestSectionId:'ending',weakestSectionLabel:'Ending'},
     sections:[
-      {id:'stunt',label:'Stunt',type:'stunt',start:20,end:45,status:'clear',voiceover:{ready:true,score:.84},fx:{ready:true,score:.76},riskFlags:[]},
-      {id:'dance',label:'Dance',type:'dance',start:82.5,end:111,status:'review-required',voiceover:{ready:false,score:.61},fx:{ready:null,score:null},riskFlags:['section-voiceover-clarity-failed']},
-      {id:'ending',label:'Ending',type:'ending',start:132,end:150,status:'review-required',voiceover:{ready:null,score:null},fx:{ready:false,score:.55},riskFlags:['section-fx-clarity-failed']}
+      {id:'stunt',label:'Stunt',type:'stunt',start:20,end:45,status:'clear',voiceover:{ready:true,score:.84,minScore:.72,weakestItem:{id:'vo-stunt',start:30,end:30.4,score:.84}},fx:{ready:true,score:.76,minScore:.68,weakestItem:{id:'fx-stunt',start:35,end:35.2,score:.76}},riskFlags:[]},
+      {id:'dance',label:'Dance',type:'dance',start:82.5,end:111,status:'review-required',voiceover:{ready:false,score:.61,minScore:.72,weakestItem:{id:'vo-dance',start:96.2,end:96.7,score:.52}},fx:{ready:null,score:null,minScore:.68,weakestItem:null},riskFlags:['section-voiceover-clarity-failed']},
+      {id:'ending',label:'Ending',type:'ending',start:132,end:150,status:'review-required',voiceover:{ready:false,score:.64,minScore:.72,weakestItem:{id:'vo-ending',start:141.2,end:141.6,score:.64}},fx:{ready:false,score:.55,minScore:.68,weakestItem:{id:'fx-ending',start:145.3,end:145.55,score:.49}},riskFlags:['section-voiceover-clarity-failed','section-fx-clarity-failed']}
     ]
   };
 }
@@ -60,17 +60,26 @@ function sectionClarity(){
   assert.equal(issues[1].fxFailed,true);
   assert.equal(issues[0].startSeconds,82.5);
   assert.equal(issues[0].endSeconds,111);
-  assert.equal(issues[1].startSeconds,132);
-  assert.equal(issues[1].endSeconds,150);
+  assert.equal(issues[0].focusKind,'voiceover');
+  assert.equal(issues[0].focusStartSeconds,96.2);
+  assert.equal(issues[0].focusEndSeconds,96.7);
+  assert.equal(issues[1].focusKind,'fx');
+  assert.equal(issues[1].focusStartSeconds,145.3);
+  assert.equal(issues[1].focusEndSeconds,145.55);
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview(),metrics:metrics({sectionClarity:section})});
-  assert.equal(result.version,3);
+  assert.equal(result.version,4);
   assert.equal(result.status,'review-required');
   assert(result.riskFlags.includes('final-section-clarity-failed'));
   assert(result.recommendations.includes('resolve-section-clarity-before-final-master'));
   assert.equal(result.checks.sectionClarity.sectionsReviewRequired,2);
   assert.equal(result.checks.sectionClarity.weakestSectionLabel,'Ending');
   assert.deepEqual(result.sectionIssues.map(issue=>issue.label),['Dance','Ending']);
-  assert.deepEqual(result.sectionIssues.map(issue=>issue.startSeconds),[82.5,132]);
+  assert.deepEqual(result.sectionIssues.map(issue=>issue.focusStartSeconds),[96.2,145.3]);
+}
+{
+  const fallback={kind:'cheer-competition-master-section-clarity',summary:{status:'review-required'},sections:[{id:'dance',label:'Dance',start:82.5,end:111,status:'review-required',voiceover:{ready:false,score:.61},fx:{ready:null,score:null},riskFlags:['section-voiceover-clarity-failed']}]};
+  const issue=sectionClarityIssues(fallback)[0];
+  assert.equal(issue.focusStartSeconds,82.5,'legacy section clarity without weakestItem must fall back safely to section start');
 }
 {
   const result=buildCompetitionMasterFinalCheck({readiness:readiness(),preview:preview('review-required',[{type:'pre-master-hold'}]),metrics:metrics()});
