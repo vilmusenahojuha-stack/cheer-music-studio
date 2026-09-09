@@ -19,6 +19,11 @@ assert.ok(/focusStartSeconds/.test(ui)&&/data.*focus/i.test(ui),'section-aware f
 assert.ok(/focusKind/.test(ui),'section findings must retain whether the weakest focus is voiceover or FX');
 assert.ok(/focusScore/.test(ui)&&/focusMinScore/.test(ui),'section findings must retain exact measured clarity score and acceptance threshold');
 assert.ok(/dataset\.focusScore/.test(ui)&&/dataset\.focusMinScore/.test(ui),'rendered findings must expose diagnostic score and threshold for inspection');
+assert.ok(/correctionGuidanceLabel/.test(ui)&&/correctionGuidance/.test(ui),'assessment UI must render structured correction guidance from final-check');
+assert.ok(/kevennä musiikkia paikallisesti voiceoverin alta/.test(ui),'voiceover guidance must prefer a local music-bed correction before global mix changes');
+assert.ok(/kevennä tai lyhennä peittävää FX:ää/.test(ui),'FX guidance must recommend reducing local masking rather than changing the whole master');
+assert.ok(/neuvoa-antavia eivätkä muuta audiota automaattisesti/.test(ui),'correction guidance must explicitly remain advisory and non-automatic');
+assert.ok(/role','note'/.test(ui)||/setAttribute\('role','note'\)/.test(ui),'correction guidance must be exposed as an assistive note');
 assert.ok(/focusSectionIssue/.test(ui),'assessment UI must expose a focused section navigation action');
 assert.ok(/cheerAudioEditor/.test(ui)&&/\.seek\(/.test(ui),'section navigation must use the existing audio editor seek API');
 assert.ok(/audioWorkspace/.test(ui)&&/scrollIntoView/.test(ui),'section navigation must bring the audio workspace into view');
@@ -35,4 +40,4 @@ assert.ok(/competition-master-section-clarity-core\.js/.test(workflow),'simple w
 assert.ok(/data-competition-master-section-clarity/.test(workflow),'section-aware clarity loader must prevent duplicate script insertion');
 assert.ok(/competition-master-assessment-ui\.js/.test(workflow),'simple workflow must load the assessment UI module');
 assert.ok(/data-competition-master-assessment/.test(workflow),'assessment UI loader must prevent duplicate script insertion');
-console.log('competition-master-assessment-ui: final-check findings carry precise score and threshold diagnostics to the weakest measured clarity window without modifying audio');
+console.log('competition-master-assessment-ui: final-check findings show precise, advisory local correction guidance without modifying audio');
