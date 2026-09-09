@@ -17,6 +17,14 @@
   const round=(value,digits=3)=>Number.isFinite(value)?Number(value.toFixed(digits)):null;
   const rmsToDb=value=>value>0?20*Math.log10(value):-120;
 
+  function resolveSectionClarityCore(){
+    if(typeof module==='object'&&module.exports){
+      try{return require('./competition-master-section-clarity-core.js')}catch{}
+    }
+    if(typeof globalThis!=='undefined')return globalThis.CheerCompetitionMasterSectionClarityCore||null;
+    return null;
+  }
+
   function channelsFromBuffer(buffer){
     if(!buffer||!Number.isFinite(buffer.sampleRate)||buffer.sampleRate<=0||typeof buffer.getChannelData!=='function')throw new Error('Invalid audio buffer');
     const count=Math.max(1,Math.min(2,Number(buffer.numberOfChannels)||1));
@@ -85,17 +93,29 @@
   function measureCompetitionClarity(buffer,input={},options={}){
     const voiceover=measureWindowSet(buffer,input.voiceoverWindows||input.voiceovers||[],'voiceover',options.voiceover||{});
     const fx=measureWindowSet(buffer,input.fxWindows||input.fx||[],'fx',options.fx||{});
+    const sectionCore=resolveSectionClarityCore();
+    const durationSeconds=Number.isFinite(buffer?.sampleRate)&&buffer.sampleRate>0&&buffer?.getChannelData?buffer.getChannelData(0).length/buffer.sampleRate:null;
+    const sections=Array.isArray(input.sections)?input.sections:[];
+    const sectionClarity=sections.length&&sectionCore?.buildSectionClarity
+      ?sectionCore.buildSectionClarity({voiceover,fx},sections,{durationSeconds})
+      :null;
     return {
-      kind:'cheer-competition-master-clarity-metrics',version:1,stage:'post-voiceover-mix',profile:PROFILE.id,nonDestructive:true,
-      voiceoverClarityScore:voiceover.score,fxClarityScore:fx.score,voiceover,fx
+      kind:'cheer-competition-master-clarity-metrics',version:2,stage:'post-voiceover-mix',profile:PROFILE.id,nonDestructive:true,
+      voiceoverClarityScore:voiceover.score,fxClarityScore:fx.score,voiceover,fx,sectionClarity
     };
   }
 
   function mergeIntoMasterMetrics(metrics,clarity){
     if(!metrics||typeof metrics!=='object')return metrics;
     if(!clarity||clarity.kind!=='cheer-competition-master-clarity-metrics')return {...metrics};
-    return {...metrics,voiceoverClarityScore:clarity.voiceoverClarityScore,fxClarityScore:clarity.fxClarityScore,clarityMeasurement:{method:'post-mix-local-rms-contrast-v1',voiceoverWindows:clarity.voiceover?.windowsMeasured||0,fxWindows:clarity.fx?.windowsMeasured||0}};
+    return {
+      ...metrics,
+      voiceoverClarityScore:clarity.voiceoverClarityScore,
+      fxClarityScore:clarity.fxClarityScore,
+      clarityMeasurement:{method:'post-mix-local-rms-contrast-v1',voiceoverWindows:clarity.voiceover?.windowsMeasured||0,fxWindows:clarity.fx?.windowsMeasured||0},
+      sectionClarity:clarity.sectionClarity||null
+    };
   }
 
-  return {PROFILE,measureWindowSet,measureCompetitionClarity,mergeIntoMasterMetrics};
+  return {PROFILE,resolveSectionClarityCore,measureWindowSet,measureCompetitionClarity,mergeIntoMasterMetrics};
 });
