@@ -14,13 +14,26 @@ function amplify(data,sampleRate,start,end,gain){
   const b=buffer();const before=b.data.slice();
   amplify(b.data,b.sampleRate,1,1.6,4);
   amplify(b.data,b.sampleRate,2.2,2.45,3);
-  const result=measureCompetitionClarity(b,{voiceoverWindows:[{id:'vo-1',start:1,end:1.6}],fxWindows:[{id:'fx-1',start:2.2,end:2.45}]});
+  const result=measureCompetitionClarity(b,{
+    voiceoverWindows:[{id:'vo-1',start:1,end:1.6}],
+    fxWindows:[{id:'fx-1',start:2.2,end:2.45}],
+    sections:[
+      {id:'stunt',label:'Stunt',type:'stunt',start:0,end:2,energy:.9},
+      {id:'ending',label:'Ending',type:'ending',start:2,end:4,energy:1}
+    ]
+  });
   assert.equal(result.kind,'cheer-competition-master-clarity-metrics');
+  assert.equal(result.version,2);
   assert.equal(result.stage,'post-voiceover-mix');
   assert(result.voiceoverClarityScore>=.72,`voice score ${result.voiceoverClarityScore}`);
   assert(result.fxClarityScore>=.68,`fx score ${result.fxClarityScore}`);
   assert.equal(result.voiceover.windowsMeasured,1);
   assert.equal(result.fx.windowsMeasured,1);
+  assert.equal(result.sectionClarity.kind,'cheer-competition-master-section-clarity');
+  assert.equal(result.sectionClarity.sections.find(section=>section.id==='stunt').voiceover.itemsMeasured,1);
+  assert.equal(result.sectionClarity.sections.find(section=>section.id==='ending').fx.itemsMeasured,1);
+  const merged=mergeIntoMasterMetrics({truePeakDbtp:-2},result);
+  assert.strictEqual(merged.sectionClarity,result.sectionClarity,'section-aware clarity must survive master metrics merge');
   for(let i=0;i<before.length;i++){
     const expected=(i>=1000&&i<1600)?before[i]*4:(i>=2200&&i<2450)?before[i]*3:before[i];
     assert(Math.abs(b.data[i]-expected)<1e-6);
@@ -29,18 +42,25 @@ function amplify(data,sampleRate,start,end,gain){
 {
   const b=buffer();
   amplify(b.data,b.sampleRate,1,1.5,1.05);
-  const result=measureCompetitionClarity(b,{voiceoverWindows:[{start:1,end:1.5}]});
+  const result=measureCompetitionClarity(b,{
+    voiceoverWindows:[{start:1,end:1.5}],
+    sections:[{id:'dance',label:'Dance',type:'dance',start:0,end:4}]
+  });
   assert(result.voiceoverClarityScore<.72);
   assert.equal(result.fxClarityScore,null);
+  assert.equal(result.sectionClarity.summary.status,'review-required');
+  assert.equal(result.sectionClarity.summary.weakestSectionLabel,'Dance');
 }
 {
   const b=buffer();
   const result=measureCompetitionClarity(b,{});
   assert.equal(result.voiceoverClarityScore,null);
   assert.equal(result.fxClarityScore,null);
+  assert.equal(result.sectionClarity,null);
   const merged=mergeIntoMasterMetrics({truePeakDbtp:-2},result);
   assert.equal(merged.voiceoverClarityScore,null);
   assert.equal(merged.clarityMeasurement.voiceoverWindows,0);
+  assert.equal(merged.sectionClarity,null);
 }
 {
   const merged=mergeIntoMasterMetrics({truePeakDbtp:-2},{kind:'wrong'});
