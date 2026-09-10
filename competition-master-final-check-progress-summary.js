@@ -4,17 +4,33 @@
   const EPSILON=1e-9;
 
   function array(value){return Array.isArray(value)?value:[];}
+  function clamp(value,min,max){return Math.min(max,Math.max(min,value));}
+
+  function normalizedProgressImpact(progress){
+    const delta=Number(progress?.deltaDistance);
+    const before=Number(progress?.beforeDistance);
+    const after=Number(progress?.afterDistance);
+    if(!Number.isFinite(delta)||!Number.isFinite(before)||!Number.isFinite(after))return null;
+    const scale=Math.max(Math.abs(before),Math.abs(after),EPSILON);
+    return clamp(delta/scale,-1,1);
+  }
 
   function classifyRemaining(items){
     let improved=0,worsened=0,unchanged=0,unmeasured=0;
+    let measuredImpact=0,absoluteMeasuredImpact=0,impactMeasured=0;
     for(const item of array(items)){
       const delta=Number(item?.progress?.deltaDistance);
       if(!Number.isFinite(delta)){unmeasured++;continue;}
       if(delta>EPSILON)improved++;
       else if(delta<-EPSILON)worsened++;
       else unchanged++;
+      const impact=normalizedProgressImpact(item?.progress);
+      if(impact===null)continue;
+      measuredImpact+=impact;
+      absoluteMeasuredImpact+=Math.abs(impact);
+      impactMeasured++;
     }
-    return {improved,worsened,unchanged,unmeasured};
+    return {improved,worsened,unchanged,unmeasured,measuredImpact,absoluteMeasuredImpact,impactMeasured};
   }
 
   function classifyOverallDirection(counts){
@@ -27,21 +43,27 @@
     const balance=positive-negative;
     const decisive=positive+negative;
     const dominance=decisive?Math.abs(balance)/decisive:0;
-    if(balance===0)return {direction:'stable',detail:'stable',strength:'stable',label:'Kokonaisuus ennallaan',positive,negative,balance,dominance};
-    const strong=Math.abs(balance)>=2&&dominance>=0.5;
-    if(balance>0)return {
+    const hasMeasuredImpact=Number.isFinite(Number(counts?.measuredImpact))&&Number.isFinite(Number(counts?.absoluteMeasuredImpact));
+    const measuredImpact=hasMeasuredImpact?Number(counts.measuredImpact):improved-worsened;
+    const absoluteMeasuredImpact=hasMeasuredImpact?Math.max(0,Number(counts.absoluteMeasuredImpact)):improved+worsened;
+    const impactBalance=removed-added+measuredImpact;
+    const impactMagnitude=removed+added+absoluteMeasuredImpact;
+    const impactDominance=impactMagnitude>EPSILON?Math.abs(impactBalance)/impactMagnitude:0;
+    if(Math.abs(impactBalance)<=EPSILON)return {direction:'stable',detail:'stable',strength:'stable',label:'Kokonaisuus ennallaan',positive,negative,balance,dominance,impactBalance,impactMagnitude,impactDominance};
+    const strong=Math.abs(impactBalance)>=1.5&&impactDominance>=0.5;
+    if(impactBalance>0)return {
       direction:'improving',
       detail:strong?'strongly-improving':'slightly-improving',
       strength:strong?'strong':'slight',
       label:strong?'Kokonaisuus selvästi paranee':'Kokonaisuus hieman paranee',
-      positive,negative,balance,dominance
+      positive,negative,balance,dominance,impactBalance,impactMagnitude,impactDominance
     };
     return {
       direction:'worsening',
       detail:strong?'strongly-worsening':'slightly-worsening',
       strength:strong?'strong':'slight',
       label:strong?'Kokonaisuus selvästi heikkenee':'Kokonaisuus hieman heikkenee',
-      positive,negative,balance,dominance
+      positive,negative,balance,dominance,impactBalance,impactMagnitude,impactDominance
     };
   }
 
@@ -55,7 +77,9 @@
       improved:remaining.improved,
       worsened:remaining.worsened,
       removed,
-      added
+      added,
+      measuredImpact:remaining.measuredImpact,
+      absoluteMeasuredImpact:remaining.absoluteMeasuredImpact
     });
     return {
       kind:'cheer-competition-master-final-check-progress-summary',
@@ -68,6 +92,9 @@
       removed,
       added,
       totalCompared,
+      impactMeasured:remaining.impactMeasured,
+      measuredImpact:remaining.measuredImpact,
+      absoluteMeasuredImpact:remaining.absoluteMeasuredImpact,
       overallDirection:overall.direction,
       overallDirectionDetail:overall.detail,
       overallStrength:overall.strength,
@@ -76,6 +103,9 @@
       negativeSignals:overall.negative,
       signalBalance:overall.balance,
       signalDominance:overall.dominance,
+      impactBalance:overall.impactBalance,
+      impactMagnitude:overall.impactMagnitude,
+      impactDominance:overall.impactDominance,
       text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}.`
     };
   }
@@ -107,6 +137,7 @@
     node.dataset.worsened=String(summary.worsened);
     node.dataset.removed=String(summary.removed);
     node.dataset.added=String(summary.added);
+    node.dataset.impactBalance=String(summary.impactBalance);
     return true;
   }
 
@@ -119,9 +150,9 @@
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckProgressSummary={classifyRemaining,classifyOverallDirection,summarizeComparison,refresh,render};
+    window.cheerCompetitionMasterFinalCheckProgressSummary={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,summarizeComparison,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={classifyRemaining,classifyOverallDirection,summarizeComparison};
+  if(typeof module!=='undefined'&&module.exports)module.exports={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,summarizeComparison};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
