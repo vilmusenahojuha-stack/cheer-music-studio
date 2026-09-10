@@ -137,6 +137,55 @@
     });
   }
 
+  function resolveStructuralBoundaryCore(explicitCore=null){
+    if(explicitCore&&typeof explicitCore.structuralBoundaryFit==='function')return explicitCore;
+    if(typeof window!=='undefined'&&window.SmartMixStructuralBoundaryCore&&typeof window.SmartMixStructuralBoundaryCore.structuralBoundaryFit==='function'){
+      return window.SmartMixStructuralBoundaryCore;
+    }
+    if(typeof module!=='undefined'&&module.exports&&typeof require==='function'){
+      try{
+        const core=require('./smart-mix-structural-boundary-core.js');
+        if(core&&typeof core.structuralBoundaryFit==='function')return core;
+      }catch(_error){}
+    }
+    return null;
+  }
+
+  function applyStructuralBoundaryPreference(scoredCandidates=[],options={}){
+    const phraseScored=applyPhraseBoundaryPreference(scoredCandidates,options);
+    if(options.preferDetectedBoundaries===false)return phraseScored.map(candidate=>({
+      ...candidate,
+      boundarySource:'fixed-phrase',
+      structuralBoundary:null
+    }));
+
+    const structuralCore=resolveStructuralBoundaryCore(options.structuralBoundaryCore);
+    if(!structuralCore)return phraseScored.map(candidate=>({
+      ...candidate,
+      boundarySource:'fixed-phrase',
+      structuralBoundary:null
+    }));
+
+    return phraseScored.map(candidate=>{
+      const structuralBoundary=structuralCore.structuralBoundaryFit(candidate,{
+        phrases:options.phrases,
+        sections:options.sections,
+        minConfidence:options.minBoundaryConfidence
+      });
+      if(structuralBoundary?.source!=='detected'||!Number.isFinite(Number(structuralBoundary.score))){
+        return {...candidate,boundarySource:'fixed-phrase',structuralBoundary};
+      }
+      const baseScore=clamp01(candidate.baseScore);
+      const multiplier=.80+.20*clamp01(structuralBoundary.score);
+      return {
+        ...candidate,
+        score:clamp01(baseScore*multiplier),
+        boundarySource:'detected',
+        structuralBoundary
+      };
+    });
+  }
+
   function candidateSegments(profile=[],durationEights=1){
     const rows=normalizeProfile(profile);
     const duration=Math.max(1,Math.floor(finite(durationEights,1)));
@@ -164,7 +213,18 @@
 
   function rangeKey(range={}){return range.trackId?`id:${range.trackId}`:range.sourceName?`name:${range.sourceName}`:null;}
 
-  function rankSegments(section,profile=[],{limit=5,minScore=0,excludeRanges=[],phraseEights=4,preferPhraseBoundaries=true}={}){
+  function rankSegments(section,profile=[],{
+    limit=5,
+    minScore=0,
+    excludeRanges=[],
+    phraseEights=4,
+    preferPhraseBoundaries=true,
+    preferDetectedBoundaries=true,
+    phrases=[],
+    sections=[],
+    minBoundaryConfidence=.72,
+    structuralBoundaryCore=null
+  }={}){
     const duration=Math.max(1,Math.floor(finite(section?.durationEights,finite(section?.endEight)-finite(section?.startEight)+1)));
     const overlapsExcluded=(candidate)=>excludeRanges.some(range=>{
       const rk=rangeKey(range),ck=rangeKey(candidate);
@@ -174,18 +234,52 @@
     const scored=candidateSegments(profile,duration)
       .filter(candidate=>!overlapsExcluded(candidate))
       .map(candidate=>({...candidate,...scoreSegment(section,candidate.rows)}));
-    return applyPhraseBoundaryPreference(scored,{phraseEights,preferPhraseBoundaries})
+    return applyStructuralBoundaryPreference(scored,{
+      phraseEights,
+      preferPhraseBoundaries,
+      preferDetectedBoundaries,
+      phrases,
+      sections,
+      minBoundaryConfidence,
+      structuralBoundaryCore
+    })
       .filter(candidate=>candidate.score>=clamp01(minScore))
-      .sort((a,b)=>b.score-a.score||b.phraseBoundary.score-a.phraseBoundary.score||String(a.sourceName||'').localeCompare(String(b.sourceName||''))||a.startEight-b.startEight)
+      .sort((a,b)=>b.score-a.score
+        ||finite(b.structuralBoundary?.score,-1)-finite(a.structuralBoundary?.score,-1)
+        ||b.phraseBoundary.score-a.phraseBoundary.score
+        ||String(a.sourceName||'').localeCompare(String(b.sourceName||''))
+        ||a.startEight-b.startEight)
       .slice(0,Math.max(1,Math.floor(finite(limit,5))))
       .map(({rows,...candidate})=>candidate);
   }
 
-  function matchPlanSections(sections=[],profile=[],{limitPerSection=3,minScore=.45,avoidReuse=true,phraseEights=4,preferPhraseBoundaries=true}={}){
+  function matchPlanSections(sections=[],profile=[],{
+    limitPerSection=3,
+    minScore=.45,
+    avoidReuse=true,
+    phraseEights=4,
+    preferPhraseBoundaries=true,
+    preferDetectedBoundaries=true,
+    phrases=[],
+    detectedSections=[],
+    minBoundaryConfidence=.72,
+    structuralBoundaryCore=null
+  }={}){
     const matches=[];
     const used=[];
     for(const section of sections){
-      const candidates=rankSegments(section,profile,{limit:limitPerSection,minScore,excludeRanges:avoidReuse?used:[],phraseEights,preferPhraseBoundaries});
+      const candidates=rankSegments(section,profile,{
+        limit:limitPerSection,
+        minScore,
+        excludeRanges:avoidReuse?used:[],
+        phraseEights,
+        preferPhraseBoundaries,
+        preferDetectedBoundaries,
+        phrases,
+        sections:detectedSections,
+        minBoundaryConfidence,
+        structuralBoundaryCore
+      });
       const best=candidates[0]||null;
       if(best&&avoidReuse)used.push({sourceName:best.sourceName,trackId:best.trackId,startEight:best.startEight,endEight:best.endEight});
       matches.push({sectionId:section?.id||null,sectionType:section?.type||'other',durationEights:section?.durationEights||null,best,candidates});
@@ -200,11 +294,18 @@
       avoidReuse:Boolean(avoidReuse),
       phraseEights:Math.max(1,Math.round(finite(phraseEights,4))),
       preferPhraseBoundaries:preferPhraseBoundaries!==false,
+      preferDetectedBoundaries:preferDetectedBoundaries!==false,
+      minBoundaryConfidence:clamp01(minBoundaryConfidence),
       nonDestructive:true
     };
   }
 
-  const api={ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,targetTrend,classifyEntryTransition,transitionIntent,transitionIntentScore,segmentFeatures,scoreSegment,phraseBoundaryFit,applyPhraseBoundaryPreference,candidateSegments,rankSegments,matchPlanSections};
+  const api={
+    ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,targetTrend,classifyEntryTransition,
+    transitionIntent,transitionIntentScore,segmentFeatures,scoreSegment,phraseBoundaryFit,
+    applyPhraseBoundaryPreference,resolveStructuralBoundaryCore,applyStructuralBoundaryPreference,
+    candidateSegments,rankSegments,matchPlanSections
+  };
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixSegmentMatcherCore=api;
 })();
