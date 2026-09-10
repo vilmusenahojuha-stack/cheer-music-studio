@@ -4,6 +4,7 @@ const {
   parseSectionWindow,
   locateTimeInCounts,
   locateWindowInCounts,
+  findNearestTransition,
   buildStructuralLocation,
   findRiskByKey,
   buildPriorityContext,
@@ -50,6 +51,24 @@ assert.equal(locateTimeInCounts(1,{bpm:120,oneOffset:2}),null);
 const oneEight=parseSectionWindow('section:dance:fx:0.000:2.000');
 assert.equal(locateWindowInCounts(oneEight,{bpm:240}).text,'kasi 1, laskut 1–8');
 
+const transitionPlan={
+  transitionCandidates:[
+    {type:'drop',atEight:20,confidence:.92,source:'audio',reason:'audio-energy-rise'},
+    {type:'break',atEight:18,confidence:.71,source:'structure',reason:'energy-fall'},
+    {type:'cut',atEight:22,confidence:.99,source:'structure',reason:'section-boundary'}
+  ]
+};
+assert.deepEqual(
+  findNearestTransition(transitionPlan,19),
+  {
+    type:'drop',atEight:20,distanceEights:1,confidence:.92,reason:'audio-energy-rise',source:'audio',time:null,
+    text:'lähin drop: kasi 20 (1 kasin päässä)'
+  }
+);
+assert.equal(findNearestTransition({transitionCandidates:[{type:'cut',atEight:25,confidence:1}]},19),null);
+assert.equal(findNearestTransition(transitionPlan,null),null);
+assert.equal(findNearestTransition({transitionCandidates:[{type:'other',atEight:19,confidence:1}]},19),null);
+
 const project={
   targetBpm:120,
   eights:Array.from({length:24},(_,index)=>({part:index<16?'Transition':'Ending'}))
@@ -73,15 +92,28 @@ const plan={
       };
     });
     const phrases=Array.from({length:6},(_,index)=>({phrase:index+1,startEight:index*4+1,endEight:index*4+4,energyTrend:'steady'}));
-    return {timeline,phrases};
+    return {
+      timeline,
+      phrases,
+      transitionCandidates:[
+        {type:'break',atEight:18,confidence:.72,source:'structure',reason:'energy-fall'},
+        {type:'drop',atEight:20,confidence:.88,source:'audio',reason:'audio-energy-rise'},
+        {type:'cut',atEight:24,confidence:.95,source:'structure',reason:'section-boundary'}
+      ]
+    };
   }
 };
 const structural=buildStructuralLocation(project,{start:{eight:19,count:1}},{plan,workflow});
 assert.deepEqual(structural.phrase,{number:5,startEight:17,endEight:20,energyTrend:'steady'});
 assert.deepEqual(structural.energyRange,{level:'peak',startEight:17,endEight:24});
 assert.equal(structural.sectionType,'ending');
+assert.equal(structural.transition.type,'drop');
+assert.equal(structural.transition.atEight,20);
+assert.equal(structural.transition.distanceEights,1);
+assert.equal(structural.transition.source,'audio');
 assert.match(structural.text,/fraasi 5 \(kasit 17–20\)/);
 assert.match(structural.text,/energiajakso huippu \(kasit 17–24\)/);
+assert.match(structural.text,/lähin drop: kasi 20 \(1 kasin päässä\)/);
 assert.doesNotMatch(structural.text,/fraasin energia/);
 assert.equal(buildStructuralLocation({...project,targetBpm:0},{start:{eight:19,count:1}},{plan,workflow}),null);
 assert.equal(buildStructuralLocation(project,{start:{eight:30,count:1}},{plan,workflow}),null);
@@ -103,11 +135,13 @@ assert.deepEqual(sectionContext.window,{startSeconds:72,endSeconds:78.5,text:'1:
 assert.equal(sectionContext.countLocation.text,'kasi 19, lasku 1 – kasi 20, lasku 5');
 assert.equal(sectionContext.structuralLocation.phrase.number,5);
 assert.equal(sectionContext.structuralLocation.energyRange.level,'peak');
+assert.equal(sectionContext.structuralLocation.transition.type,'drop');
 assert.match(sectionContext.text,/mitattu 0\.64 · raja ≥ 0\.68/);
 assert.match(sectionContext.text,/aikaväli 1:12\.000–1:18\.500/);
 assert.match(sectionContext.text,/kasi 19, lasku 1 – kasi 20, lasku 5/);
 assert.match(sectionContext.text,/fraasi 5 \(kasit 17–20\)/);
 assert.match(sectionContext.text,/energiajakso huippu \(kasit 17–24\)/);
+assert.match(sectionContext.text,/lähin drop: kasi 20 \(1 kasin päässä\)/);
 
 const calls=[];
 const editor={
@@ -133,14 +167,14 @@ assert.equal(flagContext.window,null);
 assert.equal(flagContext.countLocation,null);
 assert.equal(flagContext.structuralLocation,null);
 assert.match(flagContext.text,/mitattu -0\.68 dBTP · raja ≤ -1\.00 dBTP/);
-assert.doesNotMatch(flagContext.text,/kasi|lasku|aikaväli|fraasi|energiajakso/);
+assert.doesNotMatch(flagContext.text,/kasi|lasku|aikaväli|fraasi|energiajakso|break|drop|leikkaus/);
 assert.equal(focusPriorityContext(flagContext,editor),false);
 
 const noTempo=buildPriorityContext(comparison,sectionSummary,{project:{...project,targetBpm:0},cores:{plan,workflow}});
 assert.equal(noTempo.countLocation,null);
 assert.equal(noTempo.structuralLocation,null);
 assert.match(noTempo.text,/aikaväli 1:12\.000–1:18\.500/);
-assert.doesNotMatch(noTempo.text,/kasi 19|fraasi|energiajakso/);
+assert.doesNotMatch(noTempo.text,/kasi 19|fraasi|energiajakso|break|drop|leikkaus/);
 
 assert.equal(buildPriorityContext(comparison,{...flagSummary,advisoryOnly:false},{bpm:120}),null);
 assert.equal(buildPriorityContext({...comparison,nonDestructive:false},flagSummary,{bpm:120}),null);
@@ -151,8 +185,9 @@ assert.ok(/text\.textContent=context\.text/.test(source),'context must render di
 assert.ok(/button\.textContent='Näytä kohta aikajanalla'/.test(source),'section context must expose an explicit timeline focus action');
 assert.ok(/window\.state\?\.targetBpm/.test(source),'count location must use the existing project target BPM');
 assert.ok(/CheerPlanCore/.test(source)&&/CheerSmartMixWorkflow/.test(source),'structural location must reuse the existing cheer plan rather than inventing a second model');
+assert.ok(/transitionCandidates/.test(source)&&/break/.test(source)&&/drop/.test(source)&&/cut/.test(source),'structural context must reuse existing break/drop/cut transition candidates');
 assert.ok(!/innerHTML/.test(source),'context must not inject HTML');
-assert.ok(!/\.seek\(|startTransport|stopTransport|renderProject|measureCompetitionMaster|evaluateCompetitionMasterReadiness|DynamicsCompressor|createGain|encodeWav/i.test(source),'phrase-aware timeline focus must not control playback or audio processing');
+assert.ok(!/\.seek\(|startTransport|stopTransport|renderProject|measureCompetitionMaster|evaluateCompetitionMasterReadiness|DynamicsCompressor|createGain|encodeWav/i.test(source),'transition-aware timeline focus must not control playback or audio processing');
 assert.ok(!/finalCheck\.status\s*=|riskFlags\s*=|sectionIssues\s*=/.test(source),'context must not mutate final-check decisions');
 
-console.log('competition-master-final-check-priority-context: priority repair maps to phrase and energy period without audio mutation');
+console.log('competition-master-final-check-priority-context: priority repair maps to nearest break/drop/cut without audio mutation');
