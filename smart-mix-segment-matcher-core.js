@@ -39,13 +39,37 @@
     return ['rising','falling','steady'].includes(trend)?trend:'steady';
   }
 
+  function classifyEntryTransition(rows=[]){
+    if(!rows.length)return {type:'none',strength:0,delta:0};
+    const delta=finite(rows[0]?.energyDelta);
+    const strength=clamp01(Math.abs(delta)/.5);
+    if(delta>=.22)return {type:'drop',strength,delta};
+    if(delta<=-.22)return {type:'break',strength,delta};
+    return {type:'none',strength,delta};
+  }
+
+  function transitionIntent(section={}){
+    const type=SECTION_WEIGHTS[section?.type]?section.type:'other';
+    if(['stunt','pyramid','ending'].includes(type))return 'drop';
+    if(type==='transition')return 'break';
+    return 'neutral';
+  }
+
+  function transitionIntentScore(section,entry){
+    const intent=transitionIntent(section);
+    if(intent==='neutral')return clamp01(.55+finite(entry?.strength)*.45);
+    if(entry?.type===intent)return clamp01(.70+finite(entry?.strength)*.30);
+    if(entry?.type==='none')return .45;
+    return clamp01(.18*(1-finite(entry?.strength)*.5));
+  }
+
   function segmentFeatures(rows=[]){
     if(!rows.length)return null;
     const energies=rows.map(r=>r.energyScore);
     const first=energies[0],last=energies[energies.length-1];
     const delta=last-first;
     const transition=Math.max(0,...rows.slice(1).map(r=>Math.abs(r.energyDelta)));
-    const entryTransition=Math.abs(finite(rows[0]?.energyDelta));
+    const entryTransition=classifyEntryTransition(rows);
     const activity=average(rows.map(r=>r.activity));
     const crest=average(rows.map(r=>Math.max(0,Math.min(20,r.crestDb))/20));
     return {
@@ -55,7 +79,9 @@
       energyDelta:delta,
       trend:delta>.12?'rising':delta<-.12?'falling':'steady',
       transitionStrength:clamp01(transition/.5),
-      entryTransitionStrength:clamp01(entryTransition/.5),
+      entryTransitionStrength:entryTransition.strength,
+      entryTransitionType:entryTransition.type,
+      entryTransitionDelta:entryTransition.delta,
       activity:clamp01(activity),
       crest:clamp01(crest),
       continuity:clamp01(1-Math.max(...rows.slice(1).map((r,i)=>Math.abs(r.energyScore-rows[i].energyScore)),0))
@@ -71,15 +97,15 @@
     const energy=clamp01(1-Math.abs(features.averageEnergy-targetEnergy));
     const wantedTrend=targetTrend(section);
     const trend=features.trend===wantedTrend?1:(wantedTrend==='steady'?.55:.35);
-    const highImpact=['stunt','pyramid','ending'].includes(type);
-    const transition=highImpact?features.entryTransitionStrength:clamp01(.55+features.transitionStrength*.45);
+    const entryTransition={type:features.entryTransitionType,strength:features.entryTransitionStrength,delta:features.entryTransitionDelta};
+    const transition=transitionIntentScore(section,entryTransition);
     const activityTarget=type==='dance'?.82:type==='tumbling'?.75:type==='intro'?.48:.62;
     const activity=clamp01(1-Math.abs(features.activity-activityTarget));
-    const crestTarget=highImpact?.72:.52;
+    const crestTarget=['stunt','pyramid','ending'].includes(type)?.72:.52;
     const crest=clamp01(1-Math.abs(features.crest-crestTarget));
     const continuity=features.continuity;
     const score=energy*weights.energy+trend*weights.trend+transition*weights.transition+activity*weights.activity+crest*weights.crest+continuity*weights.continuity;
-    return {score:clamp01(score),features,components:{energy,trend,transition,activity,crest,continuity}};
+    return {score:clamp01(score),features,components:{energy,trend,transition,activity,crest,continuity},transitionIntent:transitionIntent(section)};
   }
 
   function candidateSegments(profile=[],durationEights=1){
@@ -146,7 +172,7 @@
     };
   }
 
-  const api={ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,segmentFeatures,scoreSegment,candidateSegments,rankSegments,matchPlanSections};
+  const api={ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,targetTrend,classifyEntryTransition,transitionIntent,transitionIntentScore,segmentFeatures,scoreSegment,candidateSegments,rankSegments,matchPlanSections};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixSegmentMatcherCore=api;
 })();
