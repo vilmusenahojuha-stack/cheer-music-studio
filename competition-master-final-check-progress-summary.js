@@ -5,6 +5,12 @@
 
   function array(value){return Array.isArray(value)?value:[];}
   function clamp(value,min,max){return Math.min(max,Math.max(min,value));}
+  function formatImpact(value){
+    const number=Number(value);
+    if(!Number.isFinite(number))return '0.00';
+    const rounded=Math.abs(number)<0.005?0:number;
+    return `${rounded>0?'+':''}${rounded.toFixed(2)}`;
+  }
 
   function normalizedProgressImpact(progress){
     const delta=Number(progress?.deltaDistance);
@@ -67,20 +73,43 @@
     };
   }
 
+  function buildDirectionReason(counts,overall){
+    const parts=[];
+    const removed=Number(counts?.removed)||0;
+    const added=Number(counts?.added)||0;
+    const impactMeasured=Number(counts?.impactMeasured)||0;
+    const measuredImpact=Number(counts?.measuredImpact)||0;
+    if(removed)parts.push(`${removed} riski${removed===1?'':'ä'} poistui`);
+    if(added)parts.push(`${added} uusi${added===1?' riski':'a riskiä'} tuli`);
+    if(impactMeasured){
+      if(measuredImpact>EPSILON)parts.push(`mitatut jatkuvat riskit liikkuivat nettomääräisesti kohti tavoitetta (${formatImpact(measuredImpact)})`);
+      else if(measuredImpact<-EPSILON)parts.push(`mitatut jatkuvat riskit liikkuivat nettomääräisesti poispäin tavoitteesta (${formatImpact(measuredImpact)})`);
+      else parts.push('mitattujen jatkuvien riskien nettomuutos oli tasapainossa');
+    }else if((Number(counts?.improved)||0)||(Number(counts?.worsened)||0)){
+      parts.push(`${Number(counts?.improved)||0} parani ja ${Number(counts?.worsened)||0} heikkeni ilman vertailukelpoista vaikutuspainoa`);
+    }
+    if(!parts.length)return 'Ei ratkaisevaa muutosta vertailukelpoisissa riskeissä.';
+    const prefix=overall?.direction==='improving'?'Paranemista tukee':overall?.direction==='worsening'?'Heikkenemistä selittää':'Tasapainon muodostaa';
+    return `${prefix}: ${parts.join('; ')}.`;
+  }
+
   function summarizeComparison(comparison){
     if(!comparison||comparison.advisoryOnly!==true||comparison.nonDestructive!==true)return null;
     const remaining=classifyRemaining(comparison.remaining);
     const removed=array(comparison.removed).length;
     const added=array(comparison.added).length;
     const totalCompared=remaining.improved+remaining.worsened+remaining.unchanged;
-    const overall=classifyOverallDirection({
+    const counts={
       improved:remaining.improved,
       worsened:remaining.worsened,
       removed,
       added,
+      impactMeasured:remaining.impactMeasured,
       measuredImpact:remaining.measuredImpact,
       absoluteMeasuredImpact:remaining.absoluteMeasuredImpact
-    });
+    };
+    const overall=classifyOverallDirection(counts);
+    const reason=buildDirectionReason(counts,overall);
     return {
       kind:'cheer-competition-master-final-check-progress-summary',
       advisoryOnly:true,
@@ -99,6 +128,7 @@
       overallDirectionDetail:overall.detail,
       overallStrength:overall.strength,
       overallLabel:overall.label,
+      overallReason:reason,
       positiveSignals:overall.positive,
       negativeSignals:overall.negative,
       signalBalance:overall.balance,
@@ -106,7 +136,7 @@
       impactBalance:overall.impactBalance,
       impactMagnitude:overall.impactMagnitude,
       impactDominance:overall.impactDominance,
-      text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}.`
+      text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}. ${reason}`
     };
   }
 
@@ -150,9 +180,9 @@
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckProgressSummary={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,summarizeComparison,refresh,render};
+    window.cheerCompetitionMasterFinalCheckProgressSummary={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,summarizeComparison,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,summarizeComparison};
+  if(typeof module!=='undefined'&&module.exports)module.exports={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,summarizeComparison};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
