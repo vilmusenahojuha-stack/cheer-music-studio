@@ -63,6 +63,41 @@ assert.ok(!filtered.some(e=>e.type==='drop'&&e.atEight===3));
 assert.ok(filtered.some(e=>e.type==='drop'&&e.atEight===6));
 assert.ok(filtered.some(e=>e.type==='cut'&&e.atEight===3));
 
+const intelligent=core.alignEightCountPhase({
+  bpm:120,
+  oneOffset:0,
+  anchors:[
+    {time:2.02,type:'cut',confidence:.9},
+    {time:6.01,type:'drop',confidence:1},
+    {time:10.03,type:'break',confidence:.8},
+    {time:13.2,type:'noise',confidence:.1}
+  ]
+});
+assert.equal(intelligent.source,'structural-anchors');
+assert.equal(intelligent.support,4);
+assert.ok(intelligent.confidence>.85);
+assert.ok(Math.abs(intelligent.phase-2.01)<.03,`phase ${intelligent.phase}`);
+assert.ok(Math.abs(intelligent.oneOffset-2.01)<.03,`offset ${intelligent.oneOffset}`);
+assert.ok(intelligent.residualSeconds<.2);
+
+const weighted=core.alignEightCountPhase({
+  bpm:120,
+  oneOffset:0,
+  anchors:[
+    {time:1.0,confidence:1},
+    {time:5.0,confidence:1},
+    {time:3.0,confidence:.05}
+  ]
+});
+assert.ok(Math.abs(weighted.phase-1)<1e-9,'low-confidence outlier must not move the structural phase');
+
+const fallback=core.alignEightCountPhase({bpm:120,oneOffset:.12,anchors:[]});
+assert.equal(fallback.source,'fallback');
+assert.equal(fallback.confidence,0);
+assert.equal(fallback.support,0);
+close(fallback.oneOffset,.12);
+close(fallback.phase,.12);
+
 const beat=60/152;
 close(core.snapToCount(1.23,{bpm:152,oneOffset:0.04,mode:'beat'}),0.04+Math.round((1.23-0.04)/beat)*beat);
 
@@ -73,4 +108,5 @@ assert.equal(overlap.ok,false);
 assert.equal(overlap.issues[0].type,'overlap');
 
 assert.throws(()=>core.beatSeconds(0));
+assert.throws(()=>core.alignEightCountPhase({bpm:0,anchors:[{time:1}]}));
 console.log('cheer-structure-core tests passed');
