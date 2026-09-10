@@ -28,12 +28,40 @@
     return {startSeconds:start,endSeconds:end,text:`${formatTime(start)}–${formatTime(end)}`};
   }
 
+  function locateTimeInCounts(time,{bpm,oneOffset=0,endExclusive=false}={}){
+    const seconds=finite(time);
+    const tempo=finite(bpm);
+    const offset=Math.max(0,finite(oneOffset)||0);
+    if(seconds===null||tempo===null||tempo<=0||seconds<offset)return null;
+    const beatDuration=60/tempo;
+    const epsilon=endExclusive?Math.min(1e-6,beatDuration/1000):0;
+    const relative=Math.max(0,seconds-offset-epsilon);
+    const beatIndex=Math.floor(relative/beatDuration+1e-9);
+    return {
+      eight:Math.floor(beatIndex/8)+1,
+      count:(beatIndex%8)+1,
+      beatIndex,
+      beatStart:offset+beatIndex*beatDuration
+    };
+  }
+
+  function locateWindowInCounts(windowRange,{bpm,oneOffset=0}={}){
+    if(!windowRange)return null;
+    const start=locateTimeInCounts(windowRange.startSeconds,{bpm,oneOffset});
+    const end=locateTimeInCounts(windowRange.endSeconds,{bpm,oneOffset,endExclusive:true});
+    if(!start||!end)return null;
+    const text=start.eight===end.eight
+      ?`kasi ${start.eight}, laskut ${start.count}–${end.count}`
+      :`kasi ${start.eight}, lasku ${start.count} – kasi ${end.eight}, lasku ${end.count}`;
+    return {start,end,text};
+  }
+
   function findRiskByKey(comparison,key){
     if(!key)return null;
     return [...array(comparison?.added),...array(comparison?.remaining)].find(item=>item?.key===key)||null;
   }
 
-  function buildPriorityContext(comparison,summary){
+  function buildPriorityContext(comparison,summary,timing={}){
     if(!comparison||comparison.advisoryOnly!==true||comparison.nonDestructive!==true)return null;
     if(!summary||summary.advisoryOnly!==true||summary.nonDestructive!==true)return null;
     const target=summary.priorityRepairTarget;
@@ -41,12 +69,14 @@
     const risk=findRiskByKey(comparison,target.key);
     if(!risk)return null;
     const measurement=typeof risk.measurement==='string'&&risk.measurement.trim()?risk.measurement.trim():null;
-    const window=parseSectionWindow(risk.key);
+    const windowRange=parseSectionWindow(risk.key);
+    const countLocation=windowRange?locateWindowInCounts(windowRange,timing):null;
     const sectionId=risk.sectionId||null;
     const parts=[];
     if(measurement)parts.push(`mitattu ${measurement}`);
     if(sectionId)parts.push(`osio ${sectionId}`);
-    if(window)parts.push(`aikaväli ${window.text}`);
+    if(windowRange)parts.push(`aikaväli ${windowRange.text}`);
+    if(countLocation)parts.push(countLocation.text);
     if(!parts.length)return null;
     return {
       kind:'cheer-competition-master-final-check-priority-context',
@@ -57,7 +87,8 @@
       riskKind:risk.kind||null,
       measurement,
       sectionId,
-      window,
+      window:windowRange,
+      countLocation,
       text:`Korjauskohteen tiedot: ${risk.label||target.label||'Korjauskohde'} · ${parts.join(' · ')}.`
     };
   }
@@ -96,10 +127,19 @@
     if(!context){
       node.hidden=true;
       delete node.dataset.priorityRepairKey;
+      delete node.dataset.priorityRepairEight;
+      delete node.dataset.priorityRepairCount;
       return false;
     }
     node.hidden=false;
     node.dataset.priorityRepairKey=context.key;
+    if(context.countLocation){
+      node.dataset.priorityRepairEight=String(context.countLocation.start.eight);
+      node.dataset.priorityRepairCount=String(context.countLocation.start.count);
+    }else{
+      delete node.dataset.priorityRepairEight;
+      delete node.dataset.priorityRepairCount;
+    }
     const text=document.createElement('span');
     text.textContent=context.text;
     node.appendChild(text);
@@ -119,16 +159,17 @@
     const comparison=window.cheerCompetitionMasterFinalCheckHistory?.getLastComparison?.();
     const summarize=window.cheerCompetitionMasterFinalCheckProgressSummary?.summarizeComparison;
     const summary=typeof summarize==='function'?summarize(comparison):null;
-    const context=buildPriorityContext(comparison,summary);
+    const bpm=finite(window.state?.targetBpm);
+    const context=buildPriorityContext(comparison,summary,{bpm,oneOffset:0});
     render(context);
     return context;
   }
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,findRiskByKey,buildPriorityContext,focusPriorityContext,refresh,render};
+    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,findRiskByKey,buildPriorityContext,focusPriorityContext,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,findRiskByKey,buildPriorityContext,focusPriorityContext};
+  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,findRiskByKey,buildPriorityContext,focusPriorityContext};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
