@@ -20,6 +20,8 @@ assert.equal(stuntRanks[0].startEight,9);
 assert.equal(stuntRanks[0].endEight,12);
 assert.ok(stuntRanks[0].score>stuntRanks[1].score);
 assert.ok(stuntRanks[0].components.energy>.9);
+assert.equal(stuntRanks[0].transitionIntent,'drop');
+assert.equal(stuntRanks[0].features.entryTransitionType,'drop');
 
 const danceRanks=core.rankSegments(dance,profile,{limit:3});
 assert.equal(danceRanks[0].startEight,13);
@@ -58,5 +60,29 @@ assert.equal(crossSource.length,0,'candidate must never cross source-track bound
 const sameEightDifferentTracks=core.matchPlanSections([stunt,stunt],[...profile,...profile.map(row=>({...row,sourceName:'track-b.wav',trackId:'track-b'}))],{avoidReuse:true,minScore:.4});
 assert.equal(sameEightDifferentTracks.matchedSections,2);
 assert.notEqual(sameEightDifferentTracks.matches[0].best.trackId,sameEightDifferentTracks.matches[1].best.trackId,'reuse guard must be source-aware');
+
+const dropRows=[
+  {sourceName:'drop.wav',trackId:'drop',eight:1,start:0,end:3.2,energyScore:.90,activity:.62,crestDb:14,energyDelta:.35},
+  {sourceName:'drop.wav',trackId:'drop',eight:2,start:3.2,end:6.4,energyScore:.90,activity:.62,crestDb:14,energyDelta:0}
+];
+const breakRows=[
+  {sourceName:'break.wav',trackId:'break',eight:1,start:0,end:3.2,energyScore:.90,activity:.62,crestDb:14,energyDelta:-.35},
+  {sourceName:'break.wav',trackId:'break',eight:2,start:3.2,end:6.4,energyScore:.90,activity:.62,crestDb:14,energyDelta:0}
+];
+
+assert.deepEqual(core.classifyEntryTransition(dropRows),{type:'drop',strength:.7,delta:.35});
+assert.deepEqual(core.classifyEntryTransition(breakRows),{type:'break',strength:.7,delta:-.35});
+assert.equal(core.transitionIntent(stunt),'drop');
+assert.equal(core.transitionIntent({type:'transition'}),'break');
+assert.equal(core.transitionIntent(dance),'neutral');
+
+const stuntDropScore=core.scoreSegment({...stunt,durationEights:2},dropRows);
+const stuntBreakScore=core.scoreSegment({...stunt,durationEights:2},breakRows);
+assert.ok(stuntDropScore.components.transition>stuntBreakScore.components.transition,'stunt should prefer a drop entry over a break entry');
+
+const transitionSection={id:'transition',type:'transition',energy:'medium',energyTrend:'steady',durationEights:2};
+const transitionDropScore=core.scoreSegment(transitionSection,dropRows);
+const transitionBreakScore=core.scoreSegment(transitionSection,breakRows);
+assert.ok(transitionBreakScore.components.transition>transitionDropScore.components.transition,'transition should prefer a break entry over a drop entry');
 
 console.log('smart-mix-segment-matcher-core tests passed');
