@@ -93,6 +93,33 @@
     return `${prefix}: ${parts.join('; ')}.`;
   }
 
+  function contributorLabel(item){
+    return String(item?.label||item?.rawLabel||item?.key||'Tuntematon riski');
+  }
+
+  function buildImpactCandidates(comparison){
+    const candidates=[];
+    for(const item of array(comparison?.removed))candidates.push({label:contributorLabel(item),impact:1,kind:'removed',text:`${contributorLabel(item)} poistui (${formatImpact(1)})`});
+    for(const item of array(comparison?.added))candidates.push({label:contributorLabel(item),impact:-1,kind:'added',text:`${contributorLabel(item)} tuli uutena riskinä (${formatImpact(-1)})`});
+    for(const item of array(comparison?.remaining)){
+      const impact=normalizedProgressImpact(item?.progress);
+      if(impact===null||Math.abs(impact)<=EPSILON)continue;
+      const direction=impact>0?'parani':'heikkeni';
+      candidates.push({label:contributorLabel(item),impact,kind:'measured',text:`${contributorLabel(item)} ${direction} (${formatImpact(impact)})`});
+    }
+    return candidates;
+  }
+
+  function findDominantContributor(comparison,overall){
+    const candidates=buildImpactCandidates(comparison);
+    if(!candidates.length)return null;
+    let eligible=candidates;
+    if(overall?.direction==='improving')eligible=candidates.filter(item=>item.impact>EPSILON);
+    else if(overall?.direction==='worsening')eligible=candidates.filter(item=>item.impact<-EPSILON);
+    if(!eligible.length)eligible=candidates;
+    return eligible.slice().sort((a,b)=>Math.abs(b.impact)-Math.abs(a.impact)||a.label.localeCompare(b.label,'fi'))[0]||null;
+  }
+
   function summarizeComparison(comparison){
     if(!comparison||comparison.advisoryOnly!==true||comparison.nonDestructive!==true)return null;
     const remaining=classifyRemaining(comparison.remaining);
@@ -110,6 +137,8 @@
     };
     const overall=classifyOverallDirection(counts);
     const reason=buildDirectionReason(counts,overall);
+    const dominant=findDominantContributor(comparison,overall);
+    const dominantText=dominant?`Suurin yksittäinen vaikutus: ${dominant.text}.`:null;
     return {
       kind:'cheer-competition-master-final-check-progress-summary',
       advisoryOnly:true,
@@ -129,6 +158,8 @@
       overallStrength:overall.strength,
       overallLabel:overall.label,
       overallReason:reason,
+      dominantContributor:dominant,
+      dominantContributorText:dominantText,
       positiveSignals:overall.positive,
       negativeSignals:overall.negative,
       signalBalance:overall.balance,
@@ -136,7 +167,7 @@
       impactBalance:overall.impactBalance,
       impactMagnitude:overall.impactMagnitude,
       impactDominance:overall.impactDominance,
-      text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}. ${reason}`
+      text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}. ${reason}${dominantText?` ${dominantText}`:''}`
     };
   }
 
@@ -168,6 +199,13 @@
     node.dataset.removed=String(summary.removed);
     node.dataset.added=String(summary.added);
     node.dataset.impactBalance=String(summary.impactBalance);
+    if(summary.dominantContributor){
+      node.dataset.dominantKind=summary.dominantContributor.kind;
+      node.dataset.dominantImpact=String(summary.dominantContributor.impact);
+    }else{
+      delete node.dataset.dominantKind;
+      delete node.dataset.dominantImpact;
+    }
     return true;
   }
 
@@ -180,9 +218,9 @@
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckProgressSummary={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,summarizeComparison,refresh,render};
+    window.cheerCompetitionMasterFinalCheckProgressSummary={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,buildImpactCandidates,findDominantContributor,summarizeComparison,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,summarizeComparison};
+  if(typeof module!=='undefined'&&module.exports)module.exports={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,buildImpactCandidates,findDominantContributor,summarizeComparison};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
