@@ -118,12 +118,28 @@
       sections:buildSectionsFromEights(project?.eights||[]),
       minAlignmentConfidence:options.minAlignmentConfidence,
       minAlignmentSupport:options.minAlignmentSupport,
-      maxResidualBeats:options.maxResidualBeats
+      maxResidualBeats:options.maxResidualBeats,
+      strongConfidence:options.strongAlignmentConfidence,
+      strongSupport:options.strongAlignmentSupport,
+      reviewConfidence:options.reviewAlignmentConfidence,
+      reviewSupport:options.reviewAlignmentSupport
     },{
       structureCore:cores.structure,
       profileCore:cores.profile
     });
     return {...alignment,profile};
+  }
+
+  function resolveAlignmentUse(alignment={}){
+    const reliability=alignment?.reliability||null;
+    const level=reliability?.level||'manual';
+    return {
+      level,
+      canAutoUse:reliability?.canAutoUse===true&&level==='strong'&&alignment?.accepted===true,
+      needsReview:level==='review'||reliability?.needsReview===true,
+      useManualCountOne:level==='manual'||reliability?.useManualCountOne===true,
+      reason:reliability?.reason||alignment?.reason||'use-manual-count-one'
+    };
   }
 
   async function analyzeReadyTracks(project,ready,onProgress=()=>{},options={}){
@@ -137,8 +153,9 @@
       const originalOffset=finite(item.meta.oneOffset);
       let profile=analyzeProfile(core,pcm,item,originalOffset);
       const alignment=refineProfileAlignment(profile,project,item,options,cores);
+      const alignmentUse=resolveAlignmentUse(alignment);
       const alignedOffset=finite(alignment.oneOffset,originalOffset);
-      const shouldReanalyze=alignment.accepted===true&&Math.abs(alignedOffset-originalOffset)>1e-6;
+      const shouldReanalyze=alignmentUse.canAutoUse&&Math.abs(alignedOffset-originalOffset)>1e-6;
       if(shouldReanalyze){
         profile=analyzeProfile(core,pcm,item,alignedOffset);
       }
@@ -151,6 +168,10 @@
           oneOffset:shouldReanalyze?alignedOffset:originalOffset,
           confidence:finite(alignment.alignment?.confidence,0),
           support:finite(alignment.alignment?.support,0),
+          reliabilityLevel:alignmentUse.level,
+          canAutoUse:alignmentUse.canAutoUse,
+          needsReview:alignmentUse.needsReview,
+          useManualCountOne:alignmentUse.useManualCountOne,
           reanalyzed:shouldReanalyze,
           nonDestructive:true
         },enumerable:false,configurable:true});
@@ -206,7 +227,7 @@
   function ensureEightAlignmentCore(){
     if(typeof document==='undefined'||(typeof window!=='undefined'&&window.CheerEightAlignmentCore)||document.querySelector('script[data-cheer-eight-alignment-core]'))return false;
     const script=document.createElement('script');
-    script.src='cheer-eight-alignment-core.js?v=5.0p2l';
+    script.src='cheer-eight-alignment-core.js?v=5.0p2m';
     script.dataset.cheerEightAlignmentCore='1';
     script.async=false;
     script.onerror=()=>console.warn('Älykästä 8-count-kohdistusydintä ei voitu ladata; Smart Mix käyttää nykyistä 1-laskua.');
@@ -221,7 +242,7 @@
     o.observe(document.body,{childList:true,subtree:true});
   }
 
-  const api={sectionType,buildSectionsFromEights,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore};
+  const api={sectionType,buildSectionsFromEights,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixWorkflow=api;
   if(typeof document!=='undefined')(document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init());
