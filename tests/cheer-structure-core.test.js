@@ -98,6 +98,62 @@ assert.equal(fallback.support,0);
 close(fallback.oneOffset,.12);
 close(fallback.phase,.12);
 
+const acceptedMap=core.buildIntelligentEightCountMap({
+  bpm:120,
+  oneOffset:.1,
+  totalEights:3,
+  anchors:[
+    {time:2.01,confidence:1},
+    {time:6.02,confidence:.95},
+    {time:10.00,confidence:.9}
+  ]
+});
+assert.equal(acceptedMap.accepted,true);
+assert.equal(acceptedMap.source,'structural-anchors');
+assert.equal(acceptedMap.reason,'alignment-accepted');
+assert.equal(acceptedMap.map.length,3);
+assert.ok(Math.abs(acceptedMap.oneOffset-2.01)<.03);
+close(acceptedMap.map[0].start,acceptedMap.oneOffset);
+
+const lowConfidenceMap=core.buildIntelligentEightCountMap({
+  bpm:120,
+  oneOffset:.1,
+  totalEights:2,
+  minAlignmentConfidence:.8,
+  anchors:[
+    {time:1,confidence:1},
+    {time:2.9,confidence:1}
+  ]
+});
+assert.equal(lowConfidenceMap.accepted,false);
+assert.equal(lowConfidenceMap.source,'fallback');
+assert.equal(lowConfidenceMap.reason,'low-confidence');
+close(lowConfidenceMap.oneOffset,.1);
+close(lowConfidenceMap.map[0].start,.1);
+
+const insufficientSupportMap=core.buildIntelligentEightCountMap({
+  bpm:120,
+  oneOffset:.15,
+  totalEights:2,
+  minAlignmentSupport:2,
+  anchors:[{time:2.01,confidence:1}]
+});
+assert.equal(insufficientSupportMap.accepted,false);
+assert.equal(insufficientSupportMap.reason,'insufficient-support');
+close(insufficientSupportMap.oneOffset,.15);
+close(insufficientSupportMap.map[0].start,.15);
+
+const noAnchorMap=core.buildIntelligentEightCountMap({
+  bpm:120,
+  oneOffset:.2,
+  totalEights:2,
+  anchors:[]
+});
+assert.equal(noAnchorMap.accepted,false);
+assert.equal(noAnchorMap.source,'fallback');
+assert.equal(noAnchorMap.reason,'insufficient-support');
+close(noAnchorMap.map[0].start,.2);
+
 const beat=60/152;
 close(core.snapToCount(1.23,{bpm:152,oneOffset:0.04,mode:'beat'}),0.04+Math.round((1.23-0.04)/beat)*beat);
 
@@ -109,4 +165,5 @@ assert.equal(overlap.issues[0].type,'overlap');
 
 assert.throws(()=>core.beatSeconds(0));
 assert.throws(()=>core.alignEightCountPhase({bpm:0,anchors:[{time:1}]}));
+assert.throws(()=>core.buildIntelligentEightCountMap({bpm:0,totalEights:2,anchors:[]}));
 console.log('cheer-structure-core tests passed');
