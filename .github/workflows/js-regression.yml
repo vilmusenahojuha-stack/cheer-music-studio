@@ -25,6 +25,8 @@ jobs:
             echo "Checking $file"
             node --check "$file"
           done < <(find . -type f -name '*.js' -not -path './node_modules/*' -print0)
+      - name: Smart Mix alignment reliability gating tests
+        run: node tests/smart-mix-alignment-reliability.test.js
       - name: Audio timing regression tests
         run: node tests/audio-timing-core.test.js
       - name: Shared DSP regression tests
