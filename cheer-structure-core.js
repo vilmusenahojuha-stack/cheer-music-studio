@@ -251,6 +251,38 @@
     };
   }
 
+  function buildIntelligentEightCountMap({
+    bpm,
+    oneOffset=0,
+    totalEights=0,
+    sections=[],
+    anchors=[],
+    minAlignmentConfidence=.72,
+    minAlignmentSupport=2,
+    maxResidualBeats=1
+  }={}){
+    const fallbackOffset=Math.max(0,finiteNumber(oneOffset));
+    const confidenceThreshold=clamp01(minAlignmentConfidence);
+    const supportThreshold=Math.max(1,Math.round(finiteNumber(minAlignmentSupport,2)));
+    const alignment=alignEightCountPhase({bpm,anchors,oneOffset:fallbackOffset,maxResidualBeats});
+    const accepted=alignment.source==='structural-anchors'
+      && alignment.confidence>=confidenceThreshold
+      && alignment.support>=supportThreshold;
+    const selectedOffset=accepted?alignment.oneOffset:fallbackOffset;
+    const map=buildEightCountMap({bpm,oneOffset:selectedOffset,totalEights,sections});
+    return {
+      map,
+      oneOffset:selectedOffset,
+      accepted,
+      source:accepted?'structural-anchors':'fallback',
+      reason:accepted
+        ?'alignment-accepted'
+        :(alignment.support<supportThreshold?'insufficient-support':'low-confidence'),
+      alignment,
+      thresholds:{confidence:confidenceThreshold,support:supportThreshold}
+    };
+  }
+
   function snapToCount(time,{bpm,oneOffset=0,mode='beat'}={}){
     const unit=mode==='eight'?eightCountSeconds(bpm):beatSeconds(bpm);
     const offset=Math.max(0,finiteNumber(oneOffset));
@@ -269,7 +301,7 @@
     return {ok:issues.length===0,sections:normalized,issues};
   }
 
-  const api={SECTION_TYPES,ENERGY_LEVELS,ENERGY_SCORES,beatSeconds,eightCountSeconds,normalizeSection,buildEightCountMap,buildPhrases,energyScore,classifyEnergyTrend,detectEnergyEvents,detectTransitionCandidates,alignEightCountPhase,snapToCount,validateSections};
+  const api={SECTION_TYPES,ENERGY_LEVELS,ENERGY_SCORES,beatSeconds,eightCountSeconds,normalizeSection,buildEightCountMap,buildPhrases,energyScore,classifyEnergyTrend,detectEnergyEvents,detectTransitionCandidates,alignEightCountPhase,buildIntelligentEightCountMap,snapToCount,validateSections};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerStructureCore=api;
 })();
