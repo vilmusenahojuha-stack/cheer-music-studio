@@ -1,5 +1,10 @@
 const assert=require('assert');
 const workflow=require('../smart-mix-workflow.js');
+const fs=require('fs');
+
+const source=fs.readFileSync(require.resolve('../smart-mix-workflow.js'),'utf8');
+assert.match(source,/cheer-eight-alignment-core\.js\?v=5\.0p2l/,'browser workflow must load the analysis-driven 8-count alignment core');
+assert.doesNotMatch(source,/meta\.oneOffset\s*=(?!=)/,'Smart Mix alignment must not overwrite the saved manual count-one');
 
 const eights=[{part:'Intro'},{part:'Intro'},{part:'Stunt'},{part:'Stunt'},{part:'Dance'},{part:'Dance'}];
 const sections=workflow.buildSectionsFromEights(eights);
@@ -47,4 +52,93 @@ assert.equal(incomplete.reason,'not-all-sections-matched');
 assert.equal(incomplete.executable,false);
 assert.equal(fxAttachCalls,1,'FX integration must not run for an incomplete sequence');
 
-console.log('smart-mix-workflow tests passed');
+(async()=>{
+  const analysisProject={
+    targetBpm:120,
+    eights:[{part:'Intro'},{part:'Intro'},{part:'Stunt'},{part:'Stunt'}],
+    tracks:[{id:'track-a',name:'Aligned.wav',url:'blob:aligned'}],
+    trackAnalysis:{'Aligned.wav':{bpm:120,confidence:.9,method:'auto',oneOffset:.1}}
+  };
+  const ready=workflow.validateTrackReadiness(analysisProject).ready;
+  const offsets=[];
+  const profileCore={
+    analyzeEightCountEnergy:(samples,opts)=>{
+      offsets.push(opts.oneOffset);
+      return Array.from({length:opts.totalEights},(_,i)=>({
+        sourceName:opts.sourceName,
+        trackId:opts.trackId,
+        startEight:i+1,
+        endEight:i+1,
+        start:opts.oneOffset+i*4,
+        end:opts.oneOffset+(i+1)*4
+      }));
+    },
+    detectAudioEnergyEvents:()=>[
+      {type:'break',time:4.5,confidence:.94},
+      {type:'drop',time:8.5,confidence:.91}
+    ]
+  };
+  let alignmentArgs=null;
+  const alignmentCore={
+    alignProfileEightCounts:(profile,opts,cores)=>{
+      alignmentArgs={profile,opts,cores};
+      return {
+        accepted:true,
+        reason:'alignment-accepted',
+        source:'structural-anchors',
+        oneOffset:.5,
+        alignment:{confidence:.89,support:2},
+        nonDestructive:true
+      };
+    }
+  };
+  const structureCore={buildIntelligentEightCountMap:()=>({})};
+  const decoded={samples:new Float32Array(48000),sampleRate:48000,duration:20.5};
+  const analyzed=await workflow.analyzeReadyTracks(analysisProject,ready,()=>{}, {
+    decodeMono:async()=>decoded,
+    minAlignmentConfidence:.72,
+    minAlignmentSupport:2,
+    cores:{profile:profileCore,alignment:alignmentCore,structure:structureCore}
+  });
+  assert.deepEqual(offsets,[.1,.5],'accepted alignment must re-analyze once at the refined count-one');
+  assert.equal(alignmentArgs.opts.bpm,120);
+  assert.equal(alignmentArgs.opts.oneOffset,.1);
+  assert.equal(alignmentArgs.opts.minAlignmentConfidence,.72);
+  assert.equal(alignmentArgs.opts.minAlignmentSupport,2);
+  assert.deepEqual(alignmentArgs.opts.sections.map(s=>s.type),['intro','stunt']);
+  assert.equal(alignmentArgs.cores.profileCore,profileCore);
+  assert.equal(alignmentArgs.cores.structureCore,structureCore);
+  assert.equal(analyzed[0].eightAlignment.accepted,true);
+  assert.equal(analyzed[0].eightAlignment.originalOneOffset,.1);
+  assert.equal(analyzed[0].eightAlignment.oneOffset,.5);
+  assert.equal(analyzed[0].eightAlignment.confidence,.89);
+  assert.equal(analyzed[0].eightAlignment.support,2);
+  assert.equal(analyzed[0].eightAlignment.reanalyzed,true);
+  assert.equal(analyzed[0].eightAlignment.nonDestructive,true);
+
+  offsets.length=0;
+  const rejected=await workflow.analyzeReadyTracks(analysisProject,ready,()=>{}, {
+    decodeMono:async()=>decoded,
+    cores:{
+      profile:profileCore,
+      alignment:{alignProfileEightCounts:()=>({accepted:false,reason:'confidence-below-threshold',oneOffset:.5,alignment:{confidence:.4,support:2}})},
+      structure:structureCore
+    }
+  });
+  assert.deepEqual(offsets,[.1],'rejected alignment must keep the existing count-one and avoid re-analysis');
+  assert.equal(rejected[0].eightAlignment.accepted,false);
+  assert.equal(rejected[0].eightAlignment.oneOffset,.1);
+  assert.equal(rejected[0].eightAlignment.reanalyzed,false);
+
+  offsets.length=0;
+  const legacy=await workflow.analyzeReadyTracks(analysisProject,ready,()=>{}, {
+    decodeMono:async()=>decoded,
+    cores:{profile:profileCore}
+  });
+  assert.deepEqual(offsets,[.1],'missing alignment core must preserve the old single-pass analysis');
+  assert.equal(legacy[0].eightAlignment.accepted,false);
+  assert.equal(legacy[0].eightAlignment.reason,'alignment-core-unavailable');
+  assert.equal(legacy[0].eightAlignment.oneOffset,.1);
+
+  console.log('smart-mix-workflow tests passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});
