@@ -64,6 +64,38 @@
     return ({rising:'nouseva',falling:'laskeva',steady:'tasainen'})[value]||String(value||'');
   }
 
+  function transitionText(value){
+    return ({break:'break',drop:'drop',cut:'leikkaus'})[value]||String(value||'');
+  }
+
+  function findNearestTransition(plan,targetEight,{maxDistanceEights=2}={}){
+    const target=finite(targetEight);
+    const maxDistance=Math.max(0,finite(maxDistanceEights)??2);
+    if(target===null)return null;
+    const typePriority={break:3,drop:2,cut:1};
+    const candidates=array(plan?.transitionCandidates)
+      .map(candidate=>{
+        const atEight=finite(candidate?.atEight);
+        if(atEight===null||!['break','drop','cut'].includes(candidate?.type))return null;
+        const distance=Math.abs(atEight-target);
+        if(distance>maxDistance)return null;
+        return {
+          type:candidate.type,
+          atEight,
+          distanceEights:distance,
+          confidence:Math.max(0,Math.min(1,finite(candidate?.confidence)||0)),
+          reason:candidate?.reason||null,
+          source:candidate?.source||'structure',
+          time:finite(candidate?.time)
+        };
+      })
+      .filter(Boolean)
+      .sort((a,b)=>a.distanceEights-b.distanceEights||b.confidence-a.confidence||(typePriority[b.type]||0)-(typePriority[a.type]||0)||a.atEight-b.atEight);
+    const best=candidates[0];
+    if(!best)return null;
+    return {...best,text:`lähin ${transitionText(best.type)}: kasi ${best.atEight}${best.distanceEights?` (${best.distanceEights} kasin päässä)`:''}`};
+  }
+
   function buildStructuralLocation(project,countLocation,cores={}){
     if(!project||!countLocation?.start)return null;
     const planCore=cores.plan||(typeof window!=='undefined'?window.CheerPlanCore:null);
@@ -91,6 +123,7 @@
       startEight:Number(timeline[energyStart]?.eight),
       endEight:Number(timeline[energyEnd]?.eight)
     }:null;
+    const transition=findNearestTransition(plan,targetEight,{maxDistanceEights:2});
     const sectionLabel=row.sectionLabel||row.sectionType||null;
     const parts=[];
     if(phrase?.phrase){
@@ -102,6 +135,7 @@
     if(row.phraseEnergyTrend&&row.phraseEnergyTrend!=='steady'){
       parts.push(`fraasin energia ${trendText(row.phraseEnergyTrend)}`);
     }
+    if(transition)parts.push(transition.text);
     if(!parts.length)return null;
     return {
       phrase:phrase?{
@@ -111,6 +145,7 @@
         energyTrend:phrase.energyTrend||'steady'
       }:null,
       energyRange,
+      transition,
       sectionType:row.sectionType||null,
       sectionLabel,
       text:parts.join(' · ')
@@ -195,6 +230,7 @@
       delete node.dataset.priorityRepairCount;
       delete node.dataset.priorityRepairPhrase;
       delete node.dataset.priorityRepairEnergy;
+      delete node.dataset.priorityRepairTransition;
       return false;
     }
     node.hidden=false;
@@ -210,6 +246,8 @@
     else delete node.dataset.priorityRepairPhrase;
     if(context.structuralLocation?.energyRange?.level)node.dataset.priorityRepairEnergy=context.structuralLocation.energyRange.level;
     else delete node.dataset.priorityRepairEnergy;
+    if(context.structuralLocation?.transition?.type)node.dataset.priorityRepairTransition=context.structuralLocation.transition.type;
+    else delete node.dataset.priorityRepairTransition;
     const text=document.createElement('span');
     text.textContent=context.text;
     node.appendChild(text);
@@ -242,9 +280,9 @@
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,buildStructuralLocation,findRiskByKey,buildPriorityContext,focusPriorityContext,refresh,render};
+    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,findNearestTransition,buildStructuralLocation,findRiskByKey,buildPriorityContext,focusPriorityContext,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,buildStructuralLocation,findRiskByKey,buildPriorityContext,focusPriorityContext};
+  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,findNearestTransition,buildStructuralLocation,findRiskByKey,buildPriorityContext,focusPriorityContext};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
