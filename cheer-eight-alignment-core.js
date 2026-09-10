@@ -13,6 +13,35 @@
     return Math.max(0,Math.min(1,n));
   }
 
+  function classifyAlignmentReliability(result={},options={}){
+    const confidence=clamp01(result?.alignment?.confidence);
+    const support=Math.max(0,Math.floor(finite(result?.alignment?.support,0)));
+    const accepted=result?.accepted===true;
+    const strongConfidence=clamp01(options.strongConfidence??.84);
+    const strongSupport=Math.max(1,Math.floor(finite(options.strongSupport,3)));
+    const reviewConfidence=clamp01(options.reviewConfidence??.58);
+    const reviewSupport=Math.max(1,Math.floor(finite(options.reviewSupport,2)));
+
+    let level='manual';
+    if(accepted&&confidence>=strongConfidence&&support>=strongSupport)level='strong';
+    else if((accepted&&support>=reviewSupport)||(confidence>=reviewConfidence&&support>=reviewSupport))level='review';
+
+    return {
+      level,
+      confidence,
+      support,
+      accepted,
+      canAutoUse:level==='strong',
+      needsReview:level==='review',
+      useManualCountOne:level==='manual',
+      reason:level==='strong'
+        ?'strong-structural-alignment'
+        :level==='review'
+          ?'alignment-needs-review'
+          :'use-manual-count-one'
+    };
+  }
+
   function normalizeTransitionAnchors(events=[]){
     const rows=Array.isArray(events)?events:[];
     return rows
@@ -47,13 +76,19 @@
   function alignProfileEightCounts(profile=[],options={},cores={}){
     const structureCore=cores.structureCore||(typeof window!=='undefined'?window.CheerStructureCore:null);
     if(typeof structureCore?.buildIntelligentEightCountMap!=='function'){
-      return {
+      const unavailable={
         accepted:false,
         source:'unavailable',
         reason:'structure-core-unavailable',
         anchors:[],
         alignment:null,
         map:[]
+      };
+      return {
+        ...unavailable,
+        reliability:classifyAlignmentReliability(unavailable,options),
+        diagnosticOnly:true,
+        nonDestructive:true
       };
     }
 
@@ -76,12 +111,13 @@
     return {
       ...result,
       anchors,
+      reliability:classifyAlignmentReliability(result,options),
       diagnosticOnly:true,
       nonDestructive:true
     };
   }
 
-  const api={normalizeTransitionAnchors,collectProfileTransitionAnchors,alignProfileEightCounts};
+  const api={classifyAlignmentReliability,normalizeTransitionAnchors,collectProfileTransitionAnchors,alignProfileEightCounts};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerEightAlignmentCore=api;
 })();
