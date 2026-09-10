@@ -172,6 +172,85 @@
     return candidates.sort((a,b)=>a.time-b.time||({break:0,cut:1,drop:2}[a.type]-({break:0,cut:1,drop:2}[b.type])));
   }
 
+  function circularDistance(a,b,period){
+    const raw=Math.abs(a-b)%period;
+    return Math.min(raw,period-raw);
+  }
+
+  function normalizePhase(time,period){
+    const value=finiteNumber(time);
+    return ((value%period)+period)%period;
+  }
+
+  function alignEightCountPhase({bpm,anchors=[],oneOffset=0,maxResidualBeats=1}={}){
+    const beat=beatSeconds(bpm);
+    const period=beat*8;
+    const fallback=Math.max(0,finiteNumber(oneOffset));
+    const usable=anchors
+      .map((anchor,index)=>{
+        const time=Number(anchor?.time);
+        if(!Number.isFinite(time)||time<0)return null;
+        const confidence=clamp01(anchor?.confidence===undefined?1:anchor.confidence);
+        if(confidence<=0)return null;
+        return {index,time,confidence,phase:normalizePhase(time,period),type:String(anchor?.type||'anchor')};
+      })
+      .filter(Boolean);
+    if(!usable.length){
+      return {
+        oneOffset:fallback,
+        phase:normalizePhase(fallback,period),
+        confidence:0,
+        support:0,
+        residualSeconds:null,
+        source:'fallback'
+      };
+    }
+
+    const candidates=[
+      normalizePhase(fallback,period),
+      ...usable.map(anchor=>anchor.phase)
+    ];
+    let best=null;
+    for(const phase of candidates){
+      let weightedResidual=0;
+      let weight=0;
+      let support=0;
+      for(const anchor of usable){
+        const distance=circularDistance(anchor.phase,phase,period);
+        const normalized=Math.min(1,distance/(beat*Math.max(.25,finiteNumber(maxResidualBeats,1))));
+        const fit=1-normalized;
+        weightedResidual+=distance*anchor.confidence;
+        weight+=anchor.confidence;
+        support+=fit*anchor.confidence;
+      }
+      const residual=weight?weightedResidual/weight:period;
+      const score=weight?support/weight:0;
+      const fallbackDistance=circularDistance(phase,normalizePhase(fallback,period),period);
+      const candidate={phase,residual,score,support,weight,fallbackDistance};
+      if(!best
+        ||candidate.score>best.score+1e-12
+        ||(Math.abs(candidate.score-best.score)<=1e-12&&candidate.residual<best.residual-1e-12)
+        ||(Math.abs(candidate.score-best.score)<=1e-12&&Math.abs(candidate.residual-best.residual)<=1e-12&&candidate.fallbackDistance<best.fallbackDistance)){
+        best=candidate;
+      }
+    }
+
+    const cycle=Math.floor(fallback/period);
+    let aligned=cycle*period+best.phase;
+    while(aligned>fallback+period/2)aligned-=period;
+    while(aligned<Math.max(0,fallback-period/2))aligned+=period;
+    if(aligned<0)aligned=best.phase;
+
+    return {
+      oneOffset:aligned,
+      phase:best.phase,
+      confidence:clamp01(best.score),
+      support:usable.length,
+      residualSeconds:best.residual,
+      source:'structural-anchors'
+    };
+  }
+
   function snapToCount(time,{bpm,oneOffset=0,mode='beat'}={}){
     const unit=mode==='eight'?eightCountSeconds(bpm):beatSeconds(bpm);
     const offset=Math.max(0,finiteNumber(oneOffset));
@@ -190,7 +269,7 @@
     return {ok:issues.length===0,sections:normalized,issues};
   }
 
-  const api={SECTION_TYPES,ENERGY_LEVELS,ENERGY_SCORES,beatSeconds,eightCountSeconds,normalizeSection,buildEightCountMap,buildPhrases,energyScore,classifyEnergyTrend,detectEnergyEvents,detectTransitionCandidates,snapToCount,validateSections};
+  const api={SECTION_TYPES,ENERGY_LEVELS,ENERGY_SCORES,beatSeconds,eightCountSeconds,normalizeSection,buildEightCountMap,buildPhrases,energyScore,classifyEnergyTrend,detectEnergyEvents,detectTransitionCandidates,alignEightCountPhase,snapToCount,validateSections};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerStructureCore=api;
 })();
