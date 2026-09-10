@@ -30,6 +30,8 @@
     const w=typeof window!=='undefined'?window:{};
     return {
       profile:overrides.profile||w.CheerAudioProfileCore,
+      alignment:overrides.alignment||w.CheerEightAlignmentCore,
+      structure:overrides.structure||w.CheerStructureCore,
       plan:overrides.plan||w.CheerPlanCore,
       matcher:overrides.matcher||w.SmartMixSegmentMatcherCore,
       sequence:overrides.sequence||w.SmartMixSequenceCore,
@@ -92,17 +94,67 @@
     }finally{ctx.close().catch(()=>{});}
   }
 
+  function analyzeProfile(core,pcm,item,oneOffset){
+    const eightSeconds=480/item.bpm;
+    const available=Math.max(0,finite(pcm.duration)-finite(oneOffset));
+    const totalEights=Math.max(0,Math.floor(available/eightSeconds));
+    return core.analyzeEightCountEnergy(pcm.samples,{
+      sampleRate:pcm.sampleRate,
+      bpm:item.bpm,
+      oneOffset:finite(oneOffset),
+      totalEights,
+      sourceName:item.track.name,
+      trackId:item.track.id||item.track.name
+    });
+  }
+
+  function refineProfileAlignment(profile,project,item,options,cores){
+    if(!cores.alignment?.alignProfileEightCounts||!cores.structure?.buildIntelligentEightCountMap){
+      return {accepted:false,reason:'alignment-core-unavailable',oneOffset:finite(item.meta.oneOffset),profile};
+    }
+    const alignment=cores.alignment.alignProfileEightCounts(profile,{
+      bpm:item.bpm,
+      oneOffset:finite(item.meta.oneOffset),
+      sections:buildSectionsFromEights(project?.eights||[]),
+      minAlignmentConfidence:options.minAlignmentConfidence,
+      minAlignmentSupport:options.minAlignmentSupport,
+      maxResidualBeats:options.maxResidualBeats
+    },{
+      structureCore:cores.structure,
+      profileCore:cores.profile
+    });
+    return {...alignment,profile};
+  }
+
   async function analyzeReadyTracks(project,ready,onProgress=()=>{},options={}){
-    const core=resolveCores(options.cores||{}).profile;
+    const cores=resolveCores(options.cores||{});
+    const core=cores.profile;
     if(!core?.analyzeEightCountEnergy)throw new Error('Cheer audio profile -ydin ei ole latautunut.');
     const profiles=[];
     for(let i=0;i<ready.length;i++){
       const item=ready[i];onProgress({phase:'profile',done:i,total:ready.length,name:item.track.name});
       const pcm=await (options.decodeMono||decodeMono)(item.track);
-      const eightSeconds=480/item.bpm;
-      const available=Math.max(0,finite(pcm.duration)-finite(item.meta.oneOffset));
-      const totalEights=Math.max(0,Math.floor(available/eightSeconds));
-      const profile=core.analyzeEightCountEnergy(pcm.samples,{sampleRate:pcm.sampleRate,bpm:item.bpm,oneOffset:finite(item.meta.oneOffset),totalEights,sourceName:item.track.name,trackId:item.track.id||item.track.name});
+      const originalOffset=finite(item.meta.oneOffset);
+      let profile=analyzeProfile(core,pcm,item,originalOffset);
+      const alignment=refineProfileAlignment(profile,project,item,options,cores);
+      const alignedOffset=finite(alignment.oneOffset,originalOffset);
+      const shouldReanalyze=alignment.accepted===true&&Math.abs(alignedOffset-originalOffset)>1e-6;
+      if(shouldReanalyze){
+        profile=analyzeProfile(core,pcm,item,alignedOffset);
+      }
+      if(Array.isArray(profile)){
+        Object.defineProperty(profile,'eightAlignment',{value:{
+          accepted:alignment.accepted===true,
+          reason:alignment.reason||null,
+          source:alignment.source||null,
+          originalOneOffset:originalOffset,
+          oneOffset:shouldReanalyze?alignedOffset:originalOffset,
+          confidence:finite(alignment.alignment?.confidence,0),
+          support:finite(alignment.alignment?.support,0),
+          reanalyzed:shouldReanalyze,
+          nonDestructive:true
+        },enumerable:false,configurable:true});
+      }
       profiles.push(profile);onProgress({phase:'profile',done:i+1,total:ready.length,name:item.track.name});
     }
     return profiles;
@@ -151,9 +203,25 @@
     return true;
   }
 
-  function init(){if(mountUi())return;const o=new MutationObserver(()=>{if(mountUi())o.disconnect();});o.observe(document.body,{childList:true,subtree:true});}
+  function ensureEightAlignmentCore(){
+    if(typeof document==='undefined'||(typeof window!=='undefined'&&window.CheerEightAlignmentCore)||document.querySelector('script[data-cheer-eight-alignment-core]'))return false;
+    const script=document.createElement('script');
+    script.src='cheer-eight-alignment-core.js?v=5.0p2l';
+    script.dataset.cheerEightAlignmentCore='1';
+    script.async=false;
+    script.onerror=()=>console.warn('Älykästä 8-count-kohdistusydintä ei voitu ladata; Smart Mix käyttää nykyistä 1-laskua.');
+    document.head.appendChild(script);
+    return true;
+  }
 
-  const api={sectionType,buildSectionsFromEights,validateTrackReadiness,createProposalFromProfiles,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi};
+  function init(){
+    ensureEightAlignmentCore();
+    if(mountUi())return;
+    const o=new MutationObserver(()=>{if(mountUi())o.disconnect();});
+    o.observe(document.body,{childList:true,subtree:true});
+  }
+
+  const api={sectionType,buildSectionsFromEights,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixWorkflow=api;
   if(typeof document!=='undefined')(document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init());
