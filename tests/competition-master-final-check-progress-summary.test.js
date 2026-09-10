@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const {normalizedProgressImpact,classifyRemaining,classifyOverallDirection,summarizeComparison}=require('../competition-master-final-check-progress-summary.js');
+const {normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,summarizeComparison}=require('../competition-master-final-check-progress-summary.js');
 
 assert.equal(normalizedProgressImpact({beforeDistance:0.52,afterDistance:0.26,deltaDistance:0.26}),0.5);
 assert.equal(normalizedProgressImpact({beforeDistance:0.04,afterDistance:0.08,deltaDistance:-0.04}),-0.5);
@@ -68,6 +68,23 @@ assert.equal(magnitudeWins.detail,'slightly-worsening');
 assert.ok(magnitudeWins.impactBalance<0);
 assert.ok(magnitudeWins.impactDominance>0.7);
 
+assert.equal(
+  buildDirectionReason({removed:2,added:0,impactMeasured:2,measuredImpact:0.75,improved:2,worsened:0},{direction:'improving'}),
+  'Paranemista tukee: 2 riskiä poistui; mitatut jatkuvat riskit liikkuivat nettomääräisesti kohti tavoitetta (+0.75).'
+);
+assert.equal(
+  buildDirectionReason({removed:0,added:1,impactMeasured:2,measuredImpact:-0.6,improved:0,worsened:2},{direction:'worsening'}),
+  'Heikkenemistä selittää: 1 uusi riski tuli; mitatut jatkuvat riskit liikkuivat nettomääräisesti poispäin tavoitteesta (-0.60).'
+);
+assert.equal(
+  buildDirectionReason({removed:1,added:1,impactMeasured:2,measuredImpact:0,improved:1,worsened:1},{direction:'stable'}),
+  'Tasapainon muodostaa: 1 riski poistui; 1 uusi riski tuli; mitattujen jatkuvien riskien nettomuutos oli tasapainossa.'
+);
+assert.equal(
+  buildDirectionReason({removed:0,added:0,impactMeasured:0,measuredImpact:0,improved:0,worsened:0},{direction:'stable'}),
+  'Ei ratkaisevaa muutosta vertailukelpoisissa riskeissä.'
+);
+
 const summary=summarizeComparison({
   advisoryOnly:true,
   nonDestructive:true,
@@ -96,7 +113,8 @@ assert.equal(summary.signalDominance,0.2);
 assert.equal(summary.impactBalance,1);
 assert.equal(summary.impactMagnitude,4);
 assert.equal(summary.impactDominance,0.25);
-assert.equal(summary.text,'Kokonaisuus hieman paranee. Kehitys: 1 parani · 1 heikkeni · 2 poistui · 1 uusi · 1 ennallaan · 1 ilman vertailumittausta.');
+assert.equal(summary.overallReason,'Paranemista tukee: 2 riskiä poistui; 1 uusi riski tuli; mitattujen jatkuvien riskien nettomuutos oli tasapainossa.');
+assert.equal(summary.text,'Kokonaisuus hieman paranee. Kehitys: 1 parani · 1 heikkeni · 2 poistui · 1 uusi · 1 ennallaan · 1 ilman vertailumittausta. Paranemista tukee: 2 riskiä poistui; 1 uusi riski tuli; mitattujen jatkuvien riskien nettomuutos oli tasapainossa.');
 
 const weightedWorsening=summarizeComparison({
   advisoryOnly:true,
@@ -115,16 +133,20 @@ assert.equal(weightedWorsening.worsened,1);
 assert.equal(weightedWorsening.overallDirection,'worsening','measured magnitude must override misleading raw counts');
 assert.equal(weightedWorsening.overallDirectionDetail,'slightly-worsening');
 assert.ok(weightedWorsening.impactBalance<0);
+assert.match(weightedWorsening.overallReason,/^Heikkenemistä selittää:/);
+assert.match(weightedWorsening.overallReason,/poispäin tavoitteesta/);
 
 const worsening=summarizeComparison({advisoryOnly:true,nonDestructive:true,removed:[],remaining:[{progress:{beforeDistance:0.1,afterDistance:0.2,deltaDistance:-0.1}},{progress:{beforeDistance:0.2,afterDistance:0.4,deltaDistance:-0.2}}],added:[{key:'new'}]});
 assert.equal(worsening.overallDirection,'worsening');
 assert.equal(worsening.overallDirectionDetail,'strongly-worsening');
 assert.match(worsening.text,/^Kokonaisuus selvästi heikkenee\./);
+assert.match(worsening.overallReason,/1 uusi riski tuli/);
 
 const stable=summarizeComparison({advisoryOnly:true,nonDestructive:true,removed:[{key:'fixed'}],remaining:[],added:[{key:'new'}]});
 assert.equal(stable.overallDirection,'stable');
 assert.equal(stable.overallDirectionDetail,'stable');
 assert.match(stable.text,/^Kokonaisuus ennallaan\./);
+assert.match(stable.overallReason,/^Tasapainon muodostaa:/);
 
 assert.equal(summarizeComparison(null),null);
 assert.equal(summarizeComparison({advisoryOnly:false,nonDestructive:true}),null,'summary must reject non-advisory data');
@@ -134,6 +156,8 @@ const source=fs.readFileSync('competition-master-final-check-progress-summary.js
 assert.ok(/getLastComparison/.test(source),'summary must consume the already-derived final-check comparison rather than reimplementing audio checks');
 assert.ok(/normalizedProgressImpact/.test(source),'summary must normalize measured progress before combining different metric units');
 assert.ok(/beforeDistance/.test(source)&&/afterDistance/.test(source),'weighted direction must use distance-to-target progress rather than raw metric units');
+assert.ok(/buildDirectionReason/.test(source),'summary must explain the diagnostic direction from existing comparison signals');
+assert.ok(/overallReason:reason/.test(source),'summary must expose its explanation separately from the direction label');
 assert.ok(/queueMicrotask\(refresh\)/.test(source),'summary must refresh after the history listener has consumed the same final-check event');
 assert.ok(/textContent=summary\.text/.test(source),'summary must render plain text safely');
 assert.ok(/dataset\.direction=summary\.overallDirection/.test(source),'summary should preserve the broad diagnostic direction');
@@ -144,4 +168,4 @@ assert.ok(!/innerHTML\s*=/.test(source),'summary must not inject HTML');
 assert.ok(!/renderProject|measureCompetitionMaster|evaluateCompetitionMasterReadiness|normalize|DynamicsCompressor|createGain|encodeWav/i.test(source),'summary must stay purely diagnostic and non-destructive');
 assert.ok(!/finalCheck\.status\s*=|riskFlags\s*=|sectionIssues\s*=/.test(source),'summary must not mutate final-check decisions');
 
-console.log('competition-master-final-check-progress-summary: measured magnitude weighting stays advisory and non-destructive');
+console.log('competition-master-final-check-progress-summary: direction explanation stays advisory and non-destructive');
