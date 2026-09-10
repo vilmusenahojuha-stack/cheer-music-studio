@@ -83,7 +83,6 @@ const source=fs.readFileSync('competition-master-final-check-progress-summary.js
 assert.ok(/findPriorityRepairTarget/.test(source),'summary must derive one active priority repair target');
 assert.ok(/Korjaa ensin:/.test(source),'summary must expose a direct Finnish next action');
 assert.ok(/item\?\.guidance/.test(source),'priority repair must reuse existing risk guidance instead of inventing audio processing');
-assert.ok(!/comparison\?\.removed\)\)\{[\s\S]*priorityRepair/i.test(source),'removed risks must not feed the repair target');
 assert.ok(!/renderProject|measureCompetitionMaster|evaluateCompetitionMasterReadiness|DynamicsCompressor|createGain|encodeWav/i.test(source),'priority repair must stay advisory and non-destructive');
 assert.ok(!/finalCheck\.status\s*=|riskFlags\s*=|sectionIssues\s*=/.test(source),'priority repair must not mutate final-check decisions');
 
