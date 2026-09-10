@@ -54,11 +54,25 @@
       nonDestructive:true,
       key:risk.key,
       label:risk.label||target.label||'Korjauskohde',
+      riskKind:risk.kind||null,
       measurement,
       sectionId,
       window,
       text:`Korjauskohteen tiedot: ${risk.label||target.label||'Korjauskohde'} · ${parts.join(' · ')}.`
     };
+  }
+
+  function focusPriorityContext(context,editor){
+    if(!context||context.advisoryOnly!==true||context.nonDestructive!==true||!context.window)return false;
+    const audioEditor=editor||(typeof window!=='undefined'?window.cheerAudioEditor:null);
+    if(!audioEditor)return false;
+    const start=context.window.startSeconds,end=context.window.endSeconds;
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)return false;
+    const highlighted=typeof audioEditor.highlightRange==='function'
+      ?audioEditor.highlightRange(start,end,{kind:context.riskKind||'clarity',durationMs:8000})
+      :false;
+    if(typeof audioEditor.setPlayhead==='function')audioEditor.setPlayhead(start,true);
+    return highlighted===true||typeof audioEditor.setPlayhead==='function';
   }
 
   function ensureNode(){
@@ -78,15 +92,26 @@
   function render(context){
     const node=ensureNode();
     if(!node)return false;
+    node.replaceChildren();
     if(!context){
       node.hidden=true;
-      node.textContent='';
       delete node.dataset.priorityRepairKey;
       return false;
     }
     node.hidden=false;
-    node.textContent=context.text;
     node.dataset.priorityRepairKey=context.key;
+    const text=document.createElement('span');
+    text.textContent=context.text;
+    node.appendChild(text);
+    if(context.window){
+      const button=document.createElement('button');
+      button.type='button';
+      button.className='btn secondary competition-master-priority-focus';
+      button.textContent='Näytä kohta aikajanalla';
+      button.addEventListener('click',()=>focusPriorityContext(context));
+      node.appendChild(document.createTextNode(' '));
+      node.appendChild(button);
+    }
     return true;
   }
 
@@ -101,9 +126,9 @@
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,findRiskByKey,buildPriorityContext,refresh,render};
+    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,findRiskByKey,buildPriorityContext,focusPriorityContext,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,findRiskByKey,buildPriorityContext};
+  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,findRiskByKey,buildPriorityContext,focusPriorityContext};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
