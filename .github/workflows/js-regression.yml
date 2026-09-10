@@ -71,6 +71,8 @@ jobs:
         run: node tests/competition-master-final-check-history.test.js
       - name: Competition final-check progress summary tests
         run: node tests/competition-master-final-check-progress-summary.test.js
+      - name: Competition final-check priority context tests
+        run: node tests/competition-master-final-check-priority-context.test.js
       - name: Competition master timeline highlight tests
         run: node tests/competition-master-editor-highlight.test.js
       - name: Pitch-preserving time-stretch tests
