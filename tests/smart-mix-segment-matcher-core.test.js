@@ -22,6 +22,7 @@ assert.ok(stuntRanks[0].score>stuntRanks[1].score);
 assert.ok(stuntRanks[0].components.energy>.9);
 assert.equal(stuntRanks[0].transitionIntent,'drop');
 assert.equal(stuntRanks[0].features.entryTransitionType,'drop');
+assert.equal(stuntRanks[0].boundarySource,'fixed-phrase');
 
 const danceRanks=core.rankSegments(dance,profile,{limit:3});
 assert.equal(danceRanks[0].startEight,13);
@@ -34,6 +35,8 @@ assert.equal(plan.coverage,1);
 assert.equal(plan.matches[0].best.startEight,9);
 assert.equal(plan.matches[1].best.startEight,13);
 assert.equal(plan.nonDestructive,true);
+assert.equal(plan.preferDetectedBoundaries,true);
+assert.equal(plan.minBoundaryConfidence,.72);
 assert.ok(plan.averageScore>.6);
 
 const reused=core.matchPlanSections([stunt,stunt],profile,{avoidReuse:true,minScore:.4});
@@ -107,5 +110,64 @@ assert.equal(legacyPhraseRanks[0].score,legacyPhraseRanks[0].baseScore,'preferen
 const shortSectionRanks=core.rankSegments({type:'transition',energy:'medium',energyTrend:'steady',durationEights:2},uniform,{limit:3});
 assert.ok(shortSectionRanks.length>0,'short sections must retain candidates even when both phrase edges cannot align');
 assert.equal(shortSectionRanks[0].phraseBoundary.startAligned,true,'short sections should prefer entering on a phrase boundary');
+
+const detectedRanks=core.rankSegments(
+  {type:'other',energy:'medium',energyTrend:'steady',durationEights:4},
+  uniform,
+  {
+    limit:5,
+    phrases:[{trackId:'uniform',sourceName:'uniform.wav',startEight:2,endEight:5,confidence:.96}]
+  }
+);
+assert.equal(detectedRanks[0].startEight,2,'high-confidence detected phrase must outrank the fixed 4x8 guess');
+assert.equal(detectedRanks[0].endEight,5);
+assert.equal(detectedRanks[0].boundarySource,'detected');
+assert.equal(detectedRanks[0].structuralBoundary.source,'detected');
+assert.ok(detectedRanks[0].structuralBoundary.score>.85);
+
+const lowConfidenceRanks=core.rankSegments(
+  {type:'other',energy:'medium',energyTrend:'steady',durationEights:4},
+  uniform,
+  {
+    limit:5,
+    phrases:[{trackId:'uniform',sourceName:'uniform.wav',startEight:2,endEight:5,confidence:.60}]
+  }
+);
+assert.equal(lowConfidenceRanks[0].startEight,1,'low-confidence detected phrase must fall back to fixed 4x8');
+assert.equal(lowConfidenceRanks[0].boundarySource,'fixed-phrase');
+
+const otherTrackBoundaryRanks=core.rankSegments(
+  {type:'other',energy:'medium',energyTrend:'steady',durationEights:4},
+  uniform,
+  {
+    limit:5,
+    sections:[{trackId:'other-track',sourceName:'other.wav',startEight:2,endEight:5,confidence:.99}]
+  }
+);
+assert.equal(otherTrackBoundaryRanks[0].startEight,1,'a boundary from another track must not affect ranking');
+assert.equal(otherTrackBoundaryRanks[0].boundarySource,'fixed-phrase');
+
+const disabledDetectedRanks=core.rankSegments(
+  {type:'other',energy:'medium',energyTrend:'steady',durationEights:4},
+  uniform,
+  {
+    limit:5,
+    preferDetectedBoundaries:false,
+    phrases:[{trackId:'uniform',sourceName:'uniform.wav',startEight:2,endEight:5,confidence:.99}]
+  }
+);
+assert.equal(disabledDetectedRanks[0].startEight,1,'detected-boundary preference can be disabled');
+assert.equal(disabledDetectedRanks[0].boundarySource,'fixed-phrase');
+
+const detectedPlan=core.matchPlanSections(
+  [{id:'a',type:'other',energy:'medium',energyTrend:'steady',durationEights:4}],
+  uniform,
+  {
+    avoidReuse:true,
+    phrases:[{trackId:'uniform',sourceName:'uniform.wav',startEight:2,endEight:5,confidence:.96}]
+  }
+);
+assert.equal(detectedPlan.matches[0].best.startEight,2,'detected boundaries must flow through plan matching');
+assert.equal(detectedPlan.matches[0].best.boundarySource,'detected');
 
 console.log('smart-mix-segment-matcher-core tests passed');
