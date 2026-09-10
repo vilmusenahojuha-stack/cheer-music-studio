@@ -24,9 +24,25 @@
     const added=Number(counts?.added)||0;
     const positive=improved+removed;
     const negative=worsened+added;
-    if(positive>negative)return {direction:'improving',label:'Kokonaisuus paranee',positive,negative};
-    if(negative>positive)return {direction:'worsening',label:'Kokonaisuus heikkenee',positive,negative};
-    return {direction:'stable',label:'Kokonaisuus ennallaan',positive,negative};
+    const balance=positive-negative;
+    const decisive=positive+negative;
+    const dominance=decisive?Math.abs(balance)/decisive:0;
+    if(balance===0)return {direction:'stable',detail:'stable',strength:'stable',label:'Kokonaisuus ennallaan',positive,negative,balance,dominance};
+    const strong=Math.abs(balance)>=2&&dominance>=0.5;
+    if(balance>0)return {
+      direction:'improving',
+      detail:strong?'strongly-improving':'slightly-improving',
+      strength:strong?'strong':'slight',
+      label:strong?'Kokonaisuus selvästi paranee':'Kokonaisuus hieman paranee',
+      positive,negative,balance,dominance
+    };
+    return {
+      direction:'worsening',
+      detail:strong?'strongly-worsening':'slightly-worsening',
+      strength:strong?'strong':'slight',
+      label:strong?'Kokonaisuus selvästi heikkenee':'Kokonaisuus hieman heikkenee',
+      positive,negative,balance,dominance
+    };
   }
 
   function summarizeComparison(comparison){
@@ -53,9 +69,13 @@
       added,
       totalCompared,
       overallDirection:overall.direction,
+      overallDirectionDetail:overall.detail,
+      overallStrength:overall.strength,
       overallLabel:overall.label,
       positiveSignals:overall.positive,
       negativeSignals:overall.negative,
+      signalBalance:overall.balance,
+      signalDominance:overall.dominance,
       text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}.`
     };
   }
@@ -81,6 +101,8 @@
     node.hidden=false;
     node.textContent=summary.text;
     node.dataset.direction=summary.overallDirection;
+    node.dataset.directionDetail=summary.overallDirectionDetail;
+    node.dataset.strength=summary.overallStrength;
     node.dataset.improved=String(summary.improved);
     node.dataset.worsened=String(summary.worsened);
     node.dataset.removed=String(summary.removed);
