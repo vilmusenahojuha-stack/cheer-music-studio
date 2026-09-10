@@ -17,12 +17,30 @@
     return {improved,worsened,unchanged,unmeasured};
   }
 
+  function classifyOverallDirection(counts){
+    const improved=Number(counts?.improved)||0;
+    const worsened=Number(counts?.worsened)||0;
+    const removed=Number(counts?.removed)||0;
+    const added=Number(counts?.added)||0;
+    const positive=improved+removed;
+    const negative=worsened+added;
+    if(positive>negative)return {direction:'improving',label:'Kokonaisuus paranee',positive,negative};
+    if(negative>positive)return {direction:'worsening',label:'Kokonaisuus heikkenee',positive,negative};
+    return {direction:'stable',label:'Kokonaisuus ennallaan',positive,negative};
+  }
+
   function summarizeComparison(comparison){
     if(!comparison||comparison.advisoryOnly!==true||comparison.nonDestructive!==true)return null;
     const remaining=classifyRemaining(comparison.remaining);
     const removed=array(comparison.removed).length;
     const added=array(comparison.added).length;
     const totalCompared=remaining.improved+remaining.worsened+remaining.unchanged;
+    const overall=classifyOverallDirection({
+      improved:remaining.improved,
+      worsened:remaining.worsened,
+      removed,
+      added
+    });
     return {
       kind:'cheer-competition-master-final-check-progress-summary',
       advisoryOnly:true,
@@ -34,7 +52,11 @@
       removed,
       added,
       totalCompared,
-      text:`Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}.`
+      overallDirection:overall.direction,
+      overallLabel:overall.label,
+      positiveSignals:overall.positive,
+      negativeSignals:overall.negative,
+      text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}.`
     };
   }
 
@@ -58,6 +80,7 @@
     if(!summary){node.hidden=true;node.textContent='';return false;}
     node.hidden=false;
     node.textContent=summary.text;
+    node.dataset.direction=summary.overallDirection;
     node.dataset.improved=String(summary.improved);
     node.dataset.worsened=String(summary.worsened);
     node.dataset.removed=String(summary.removed);
@@ -74,9 +97,9 @@
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckProgressSummary={classifyRemaining,summarizeComparison,refresh,render};
+    window.cheerCompetitionMasterFinalCheckProgressSummary={classifyRemaining,classifyOverallDirection,summarizeComparison,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={classifyRemaining,summarizeComparison};
+  if(typeof module!=='undefined'&&module.exports)module.exports={classifyRemaining,classifyOverallDirection,summarizeComparison};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
