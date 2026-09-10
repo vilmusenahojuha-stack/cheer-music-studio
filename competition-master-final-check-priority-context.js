@@ -56,6 +56,67 @@
     return {start,end,text};
   }
 
+  function energyText(value){
+    return ({low:'matala',medium:'keskitaso',high:'korkea',peak:'huippu'})[value]||String(value||'');
+  }
+
+  function trendText(value){
+    return ({rising:'nouseva',falling:'laskeva',steady:'tasainen'})[value]||String(value||'');
+  }
+
+  function buildStructuralLocation(project,countLocation,cores={}){
+    if(!project||!countLocation?.start)return null;
+    const planCore=cores.plan||(typeof window!=='undefined'?window.CheerPlanCore:null);
+    const workflow=cores.workflow||(typeof window!=='undefined'?window.CheerSmartMixWorkflow:null);
+    if(typeof planCore?.buildCheerPlan!=='function'||typeof workflow?.buildSectionsFromEights!=='function')return null;
+    const eights=array(project.eights);
+    const bpm=finite(project.targetBpm);
+    if(!eights.length||bpm===null||bpm<=0)return null;
+    let plan;
+    try{
+      const sections=workflow.buildSectionsFromEights(eights);
+      plan=planCore.buildCheerPlan({bpm,totalEights:eights.length,sections});
+    }catch{return null;}
+    const targetEight=Number(countLocation.start.eight);
+    const row=array(plan?.timeline).find(item=>Number(item?.eight)===targetEight);
+    if(!row)return null;
+    const phrase=array(plan?.phrases).find(item=>Number(item?.phrase)===Number(row.phrase))||null;
+    const timeline=array(plan.timeline);
+    const targetIndex=timeline.findIndex(item=>Number(item?.eight)===targetEight);
+    let energyStart=targetIndex,energyEnd=targetIndex;
+    while(energyStart>0&&timeline[energyStart-1]?.energy===row.energy)energyStart--;
+    while(energyEnd<timeline.length-1&&timeline[energyEnd+1]?.energy===row.energy)energyEnd++;
+    const energyRange=row.energy?{
+      level:row.energy,
+      startEight:Number(timeline[energyStart]?.eight),
+      endEight:Number(timeline[energyEnd]?.eight)
+    }:null;
+    const sectionLabel=row.sectionLabel||row.sectionType||null;
+    const parts=[];
+    if(phrase?.phrase){
+      parts.push(`fraasi ${phrase.phrase} (kasit ${phrase.startEight}–${phrase.endEight})`);
+    }
+    if(energyRange){
+      parts.push(`energiajakso ${energyText(energyRange.level)} (kasit ${energyRange.startEight}–${energyRange.endEight})`);
+    }
+    if(row.phraseEnergyTrend&&row.phraseEnergyTrend!=='steady'){
+      parts.push(`fraasin energia ${trendText(row.phraseEnergyTrend)}`);
+    }
+    if(!parts.length)return null;
+    return {
+      phrase:phrase?{
+        number:Number(phrase.phrase),
+        startEight:Number(phrase.startEight),
+        endEight:Number(phrase.endEight),
+        energyTrend:phrase.energyTrend||'steady'
+      }:null,
+      energyRange,
+      sectionType:row.sectionType||null,
+      sectionLabel,
+      text:parts.join(' · ')
+    };
+  }
+
   function findRiskByKey(comparison,key){
     if(!key)return null;
     return [...array(comparison?.added),...array(comparison?.remaining)].find(item=>item?.key===key)||null;
@@ -71,12 +132,14 @@
     const measurement=typeof risk.measurement==='string'&&risk.measurement.trim()?risk.measurement.trim():null;
     const windowRange=parseSectionWindow(risk.key);
     const countLocation=windowRange?locateWindowInCounts(windowRange,timing):null;
+    const structuralLocation=countLocation?buildStructuralLocation(timing.project,countLocation,timing.cores||{}):null;
     const sectionId=risk.sectionId||null;
     const parts=[];
     if(measurement)parts.push(`mitattu ${measurement}`);
     if(sectionId)parts.push(`osio ${sectionId}`);
     if(windowRange)parts.push(`aikaväli ${windowRange.text}`);
     if(countLocation)parts.push(countLocation.text);
+    if(structuralLocation)parts.push(structuralLocation.text);
     if(!parts.length)return null;
     return {
       kind:'cheer-competition-master-final-check-priority-context',
@@ -89,6 +152,7 @@
       sectionId,
       window:windowRange,
       countLocation,
+      structuralLocation,
       text:`Korjauskohteen tiedot: ${risk.label||target.label||'Korjauskohde'} · ${parts.join(' · ')}.`
     };
   }
@@ -129,6 +193,8 @@
       delete node.dataset.priorityRepairKey;
       delete node.dataset.priorityRepairEight;
       delete node.dataset.priorityRepairCount;
+      delete node.dataset.priorityRepairPhrase;
+      delete node.dataset.priorityRepairEnergy;
       return false;
     }
     node.hidden=false;
@@ -140,6 +206,10 @@
       delete node.dataset.priorityRepairEight;
       delete node.dataset.priorityRepairCount;
     }
+    if(context.structuralLocation?.phrase?.number)node.dataset.priorityRepairPhrase=String(context.structuralLocation.phrase.number);
+    else delete node.dataset.priorityRepairPhrase;
+    if(context.structuralLocation?.energyRange?.level)node.dataset.priorityRepairEnergy=context.structuralLocation.energyRange.level;
+    else delete node.dataset.priorityRepairEnergy;
     const text=document.createElement('span');
     text.textContent=context.text;
     node.appendChild(text);
@@ -160,16 +230,21 @@
     const summarize=window.cheerCompetitionMasterFinalCheckProgressSummary?.summarizeComparison;
     const summary=typeof summarize==='function'?summarize(comparison):null;
     const bpm=finite(window.state?.targetBpm);
-    const context=buildPriorityContext(comparison,summary,{bpm,oneOffset:0});
+    const context=buildPriorityContext(comparison,summary,{
+      bpm,
+      oneOffset:0,
+      project:window.state,
+      cores:{plan:window.CheerPlanCore,workflow:window.CheerSmartMixWorkflow}
+    });
     render(context);
     return context;
   }
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,findRiskByKey,buildPriorityContext,focusPriorityContext,refresh,render};
+    window.cheerCompetitionMasterFinalCheckPriorityContext={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,buildStructuralLocation,findRiskByKey,buildPriorityContext,focusPriorityContext,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,findRiskByKey,buildPriorityContext,focusPriorityContext};
+  if(typeof module!=='undefined'&&module.exports)module.exports={parseSectionWindow,locateTimeInCounts,locateWindowInCounts,buildStructuralLocation,findRiskByKey,buildPriorityContext,focusPriorityContext};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
