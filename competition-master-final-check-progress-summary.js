@@ -120,6 +120,43 @@
     return eligible.slice().sort((a,b)=>Math.abs(b.impact)-Math.abs(a.impact)||a.label.localeCompare(b.label,'fi'))[0]||null;
   }
 
+  function buildRepairCandidates(comparison){
+    const candidates=[];
+    for(const item of array(comparison?.added)){
+      candidates.push({
+        label:contributorLabel(item),
+        guidance:item?.guidance||null,
+        kind:'added',
+        priority:3,
+        impact:-1,
+        key:item?.key||null
+      });
+    }
+    for(const item of array(comparison?.remaining)){
+      const impact=normalizedProgressImpact(item?.progress);
+      const after=Number(item?.progress?.afterDistance);
+      const before=Number(item?.progress?.beforeDistance);
+      const scale=Number.isFinite(after)&&Number.isFinite(before)?Math.max(Math.abs(before),Math.abs(after),EPSILON):null;
+      const residual=scale===null?0:(clamp(after/scale,0,1));
+      const priority=impact!==null&&impact<-EPSILON?2+Math.abs(impact):1+residual;
+      candidates.push({
+        label:contributorLabel(item),
+        guidance:item?.guidance||null,
+        kind:impact!==null&&impact<-EPSILON?'worsened':'remaining',
+        priority,
+        impact,
+        key:item?.key||null
+      });
+    }
+    return candidates;
+  }
+
+  function findPriorityRepairTarget(comparison){
+    const candidates=buildRepairCandidates(comparison);
+    if(!candidates.length)return null;
+    return candidates.slice().sort((a,b)=>b.priority-a.priority||a.label.localeCompare(b.label,'fi'))[0]||null;
+  }
+
   function summarizeComparison(comparison){
     if(!comparison||comparison.advisoryOnly!==true||comparison.nonDestructive!==true)return null;
     const remaining=classifyRemaining(comparison.remaining);
@@ -139,6 +176,8 @@
     const reason=buildDirectionReason(counts,overall);
     const dominant=findDominantContributor(comparison,overall);
     const dominantText=dominant?`Suurin yksittäinen vaikutus: ${dominant.text}.`:null;
+    const priorityRepair=findPriorityRepairTarget(comparison);
+    const priorityRepairText=priorityRepair?`Korjaa ensin: ${priorityRepair.label}${priorityRepair.guidance?` — ${priorityRepair.guidance}`:''}`:null;
     return {
       kind:'cheer-competition-master-final-check-progress-summary',
       advisoryOnly:true,
@@ -160,6 +199,8 @@
       overallReason:reason,
       dominantContributor:dominant,
       dominantContributorText:dominantText,
+      priorityRepairTarget:priorityRepair,
+      priorityRepairText,
       positiveSignals:overall.positive,
       negativeSignals:overall.negative,
       signalBalance:overall.balance,
@@ -167,7 +208,7 @@
       impactBalance:overall.impactBalance,
       impactMagnitude:overall.impactMagnitude,
       impactDominance:overall.impactDominance,
-      text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}. ${reason}${dominantText?` ${dominantText}`:''}`
+      text:`${overall.label}. Kehitys: ${remaining.improved} parani · ${remaining.worsened} heikkeni · ${removed} poistui · ${added} uusi${added===1?'':'a'}${remaining.unchanged?` · ${remaining.unchanged} ennallaan`:''}${remaining.unmeasured?` · ${remaining.unmeasured} ilman vertailumittausta`:''}. ${reason}${dominantText?` ${dominantText}`:''}${priorityRepairText?` ${priorityRepairText}`:''}`
     };
   }
 
@@ -206,6 +247,13 @@
       delete node.dataset.dominantKind;
       delete node.dataset.dominantImpact;
     }
+    if(summary.priorityRepairTarget){
+      node.dataset.priorityRepairKind=summary.priorityRepairTarget.kind;
+      node.dataset.priorityRepairKey=summary.priorityRepairTarget.key||'';
+    }else{
+      delete node.dataset.priorityRepairKind;
+      delete node.dataset.priorityRepairKey;
+    }
     return true;
   }
 
@@ -218,9 +266,9 @@
 
   function init(){
     window.addEventListener('cheer-competition-master-final-check-refreshed',()=>queueMicrotask(refresh));
-    window.cheerCompetitionMasterFinalCheckProgressSummary={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,buildImpactCandidates,findDominantContributor,summarizeComparison,refresh,render};
+    window.cheerCompetitionMasterFinalCheckProgressSummary={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,buildImpactCandidates,findDominantContributor,buildRepairCandidates,findPriorityRepairTarget,summarizeComparison,refresh,render};
   }
 
-  if(typeof module!=='undefined'&&module.exports)module.exports={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,buildImpactCandidates,findDominantContributor,summarizeComparison};
+  if(typeof module!=='undefined'&&module.exports)module.exports={normalizedProgressImpact,classifyRemaining,classifyOverallDirection,buildDirectionReason,buildImpactCandidates,findDominantContributor,buildRepairCandidates,findPriorityRepairTarget,summarizeComparison};
   if(typeof window!=='undefined'&&typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
