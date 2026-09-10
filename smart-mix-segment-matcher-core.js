@@ -108,6 +108,35 @@
     return {score:clamp01(score),features,components:{energy,trend,transition,activity,crest,continuity},transitionIntent:transitionIntent(section)};
   }
 
+  function phraseBoundaryFit(startEight,endEight,{phraseEights=4}={}){
+    const size=Math.max(1,Math.round(finite(phraseEights,4)));
+    const startAligned=((Math.max(1,Math.round(finite(startEight,1)))-1)%size)===0;
+    const endAligned=(Math.max(1,Math.round(finite(endEight,1)))%size)===0;
+    return {
+      phraseEights:size,
+      startAligned,
+      endAligned,
+      aligned:startAligned&&endAligned,
+      score:startAligned&&endAligned?1:(startAligned||endAligned?.55:.2)
+    };
+  }
+
+  function applyPhraseBoundaryPreference(scoredCandidates=[],options={}){
+    const phraseEights=Math.max(1,Math.round(finite(options.phraseEights,4)));
+    const prefer=options.preferPhraseBoundaries!==false;
+    return scoredCandidates.map(candidate=>{
+      const phraseBoundary=phraseBoundaryFit(candidate.startEight,candidate.endEight,{phraseEights});
+      const baseScore=clamp01(candidate.score);
+      const multiplier=prefer?(.80+.20*phraseBoundary.score):1;
+      return {
+        ...candidate,
+        baseScore,
+        score:clamp01(baseScore*multiplier),
+        phraseBoundary
+      };
+    });
+  }
+
   function candidateSegments(profile=[],durationEights=1){
     const rows=normalizeProfile(profile);
     const duration=Math.max(1,Math.floor(finite(durationEights,1)));
@@ -135,27 +164,28 @@
 
   function rangeKey(range={}){return range.trackId?`id:${range.trackId}`:range.sourceName?`name:${range.sourceName}`:null;}
 
-  function rankSegments(section,profile=[],{limit=5,minScore=0,excludeRanges=[]}={}){
+  function rankSegments(section,profile=[],{limit=5,minScore=0,excludeRanges=[],phraseEights=4,preferPhraseBoundaries=true}={}){
     const duration=Math.max(1,Math.floor(finite(section?.durationEights,finite(section?.endEight)-finite(section?.startEight)+1)));
     const overlapsExcluded=(candidate)=>excludeRanges.some(range=>{
       const rk=rangeKey(range),ck=rangeKey(candidate);
       if(rk&&ck&&rk!==ck)return false;
       return candidate.startEight<=finite(range?.endEight)&&candidate.endEight>=finite(range?.startEight);
     });
-    return candidateSegments(profile,duration)
+    const scored=candidateSegments(profile,duration)
       .filter(candidate=>!overlapsExcluded(candidate))
-      .map(candidate=>({...candidate,...scoreSegment(section,candidate.rows)}))
+      .map(candidate=>({...candidate,...scoreSegment(section,candidate.rows)}));
+    return applyPhraseBoundaryPreference(scored,{phraseEights,preferPhraseBoundaries})
       .filter(candidate=>candidate.score>=clamp01(minScore))
-      .sort((a,b)=>b.score-a.score||String(a.sourceName||'').localeCompare(String(b.sourceName||''))||a.startEight-b.startEight)
+      .sort((a,b)=>b.score-a.score||b.phraseBoundary.score-a.phraseBoundary.score||String(a.sourceName||'').localeCompare(String(b.sourceName||''))||a.startEight-b.startEight)
       .slice(0,Math.max(1,Math.floor(finite(limit,5))))
       .map(({rows,...candidate})=>candidate);
   }
 
-  function matchPlanSections(sections=[],profile=[],{limitPerSection=3,minScore=.45,avoidReuse=true}={}){
+  function matchPlanSections(sections=[],profile=[],{limitPerSection=3,minScore=.45,avoidReuse=true,phraseEights=4,preferPhraseBoundaries=true}={}){
     const matches=[];
     const used=[];
     for(const section of sections){
-      const candidates=rankSegments(section,profile,{limit:limitPerSection,minScore,excludeRanges:avoidReuse?used:[]});
+      const candidates=rankSegments(section,profile,{limit:limitPerSection,minScore,excludeRanges:avoidReuse?used:[],phraseEights,preferPhraseBoundaries});
       const best=candidates[0]||null;
       if(best&&avoidReuse)used.push({sourceName:best.sourceName,trackId:best.trackId,startEight:best.startEight,endEight:best.endEight});
       matches.push({sectionId:section?.id||null,sectionType:section?.type||'other',durationEights:section?.durationEights||null,best,candidates});
@@ -168,11 +198,13 @@
       coverage:matches.length?matched.length/matches.length:1,
       averageScore:matched.length?average(matched.map(m=>m.best.score)):null,
       avoidReuse:Boolean(avoidReuse),
+      phraseEights:Math.max(1,Math.round(finite(phraseEights,4))),
+      preferPhraseBoundaries:preferPhraseBoundaries!==false,
       nonDestructive:true
     };
   }
 
-  const api={ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,targetTrend,classifyEntryTransition,transitionIntent,transitionIntentScore,segmentFeatures,scoreSegment,candidateSegments,rankSegments,matchPlanSections};
+  const api={ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,targetTrend,classifyEntryTransition,transitionIntent,transitionIntentScore,segmentFeatures,scoreSegment,phraseBoundaryFit,applyPhraseBoundaryPreference,candidateSegments,rankSegments,matchPlanSections};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixSegmentMatcherCore=api;
 })();
