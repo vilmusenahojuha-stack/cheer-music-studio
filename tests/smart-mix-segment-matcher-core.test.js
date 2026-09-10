@@ -85,4 +85,27 @@ const transitionDropScore=core.scoreSegment(transitionSection,dropRows);
 const transitionBreakScore=core.scoreSegment(transitionSection,breakRows);
 assert.ok(transitionBreakScore.components.transition>transitionDropScore.components.transition,'transition should prefer a break entry over a drop entry');
 
+const aligned=core.phraseBoundaryFit(5,8);
+assert.deepEqual(aligned,{phraseEights:4,startAligned:true,endAligned:true,aligned:true,score:1});
+const midPhrase=core.phraseBoundaryFit(6,9);
+assert.equal(midPhrase.aligned,false);
+assert.equal(midPhrase.score,.2);
+
+const uniform=Array.from({length:8},(_,i)=>({
+  sourceName:'uniform.wav',trackId:'uniform',eight:i+1,start:i*3.2,end:(i+1)*3.2,
+  energyScore:.6,activity:.62,crestDb:11,energyDelta:0
+}));
+const phraseRanks=core.rankSegments({type:'other',energy:'medium',energyTrend:'steady',durationEights:4},uniform,{limit:5});
+assert.equal(phraseRanks[0].startEight,1,'equal musical candidates should prefer a complete phrase boundary');
+assert.equal(phraseRanks[0].endEight,4);
+assert.equal(phraseRanks[0].phraseBoundary.aligned,true);
+assert.ok(phraseRanks[0].score>phraseRanks.find(row=>row.startEight===2).score,'mid-phrase candidate must receive a boundary penalty');
+
+const legacyPhraseRanks=core.rankSegments({type:'other',energy:'medium',energyTrend:'steady',durationEights:4},uniform,{limit:5,preferPhraseBoundaries:false});
+assert.equal(legacyPhraseRanks[0].score,legacyPhraseRanks[0].baseScore,'preference can be disabled without changing base scoring');
+
+const shortSectionRanks=core.rankSegments({type:'transition',energy:'medium',energyTrend:'steady',durationEights:2},uniform,{limit:3});
+assert.ok(shortSectionRanks.length>0,'short sections must retain candidates even when both phrase edges cannot align');
+assert.equal(shortSectionRanks[0].phraseBoundary.startAligned,true,'short sections should prefer entering on a phrase boundary');
+
 console.log('smart-mix-segment-matcher-core tests passed');
