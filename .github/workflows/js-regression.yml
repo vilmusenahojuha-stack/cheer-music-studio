@@ -41,6 +41,10 @@ jobs:
         run: node tests/smart-mix-workflow-whole-quality.test.js
       - name: Smart Mix whole quality preview tests
         run: node tests/smart-mix-quality-preview-ui.test.js
+      - name: Smart Mix runner-up comparison view tests
+        run: node tests/smart-mix-runner-up-comparison-view.test.js
+      - name: Smart Mix runner-up comparison UI integration tests
+        run: node tests/smart-mix-runner-up-comparison-ui.test.js
       - name: Audio timing regression tests
         run: node tests/audio-timing-core.test.js
       - name: Shared DSP regression tests
