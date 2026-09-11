@@ -16,6 +16,14 @@
 
   const HIGH_IMPACT_TYPES=new Set(['stunt','basket','pyramid','ending']);
 
+  function defaultTransitionFlowCore(){
+    if(typeof module!=='undefined'&&module.exports){
+      try{return require('./smart-mix-transition-flow-quality-core.js');}catch(_){return null;}
+    }
+    if(typeof window!=='undefined')return window.SmartMixTransitionFlowQualityCore||null;
+    return null;
+  }
+
   function targetEnergy(section={}){
     const key=String(section.energy||'medium').toLowerCase();
     return ENERGY_TARGETS[key]??ENERGY_TARGETS.medium;
@@ -151,6 +159,17 @@
     return {score:clamp01(average),average:clamp01(average),weakest:Math.min(...scores)};
   }
 
+  function transitionFlowQuality(cheerPlan={},matchPlan={},options={}){
+    const core=options.transitionFlowCore||defaultTransitionFlowCore();
+    if(!core?.assessTransitionFlow)return null;
+    try{
+      const result=core.assessTransitionFlow(cheerPlan,matchPlan);
+      return result&&typeof result==='object'?result:null;
+    }catch(_){
+      return null;
+    }
+  }
+
   function addReviewTarget(targets,target){
     const key=[
       target.kind||'section',
@@ -265,6 +284,29 @@
       runStart=index;
     }
 
+    const transitionRows=Array.isArray(components?.transitionFlow?.rows)?components.transitionFlow.rows:[];
+    for(const row of transitionRows){
+      if(row?.score==null||row.score>=.68)continue;
+      const gap=clamp01((.68-clamp01(row.score))/.68);
+      addReviewTarget(targets,{
+        kind:'transition',
+        fromSectionId:row.fromSectionId||null,
+        toSectionId:row.toSectionId||null,
+        reason:'weak-section-transition',
+        severity:clamp01(.62+gap*.34),
+        evidence:{
+          score:clamp01(row.score),
+          energyDelta:row.energyDelta||null,
+          boundarySupport:row.boundarySupport??null,
+          transitionSupport:row.transitionSupport??null,
+          sourceSwitch:row.sourceSwitch===true,
+          fromSource:row.fromSource||null,
+          toSource:row.toSource||null,
+          reasons:Array.isArray(row.reasons)?row.reasons:[]
+        }
+      });
+    }
+
     if(components?.energyArc?.targetRange>=.18&&components?.energyArc?.range<.10){
       const candidates=[...energyRows.values()]
         .filter(row=>row.actualEnergy!=null)
@@ -304,13 +346,17 @@
     const variety=sourceVarietyQuality(proposal.sequence,options.availableSources);
     const structure=structureQuality(cheerPlan,matchPlan);
     const matches=matchCoherence(matchPlan);
+    const transitionFlow=transitionFlowQuality(cheerPlan,matchPlan,options);
 
-    const score=clamp01(
+    const legacyScore=clamp01(
       energy.score*.42+
       variety.score*.23+
       structure.score*.23+
       matches.score*.12
     );
+    const score=transitionFlow?.score==null
+      ?legacyScore
+      :clamp01(legacyScore*.82+clamp01(transitionFlow.score)*.18);
 
     const risks=[];
     if(energy.coverage<.75)risks.push('energy-coverage-low');
@@ -319,12 +365,16 @@
     if(structure.reasons.includes('ending-not-last'))risks.push('ending-not-last');
     if(structure.reasons.includes('weak-ending-energy'))risks.push('weak-ending-energy');
     if(matches.average!=null&&matches.average<.62)risks.push('match-coherence-low');
+    for(const risk of Array.isArray(transitionFlow?.risks)?transitionFlow.risks:[]){
+      if(!risks.includes(risk))risks.push(risk);
+    }
 
     const components={
       energyArc:energy,
       sourceVariety:variety,
       structure,
-      matchCoherence:matches
+      matchCoherence:matches,
+      transitionFlow
     };
     const reviewTargets=identifyReviewTargets(proposal,cheerPlan,matchPlan,components);
 
@@ -334,7 +384,11 @@
       components,
       risks,
       reviewTargets,
-      readyForFxReview:score>=.74&&!risks.includes('ending-not-last')&&!risks.includes('flat-energy-arc'),
+      readyForFxReview:
+        score>=.74&&
+        !risks.includes('ending-not-last')&&
+        !risks.includes('flat-energy-arc')&&
+        !risks.includes('weak-section-transition'),
       nonDestructive:true
     };
   }
@@ -348,6 +402,7 @@
 
   const api={
     ENERGY_TARGETS,
+    defaultTransitionFlowCore,
     targetEnergy,
     selectedCandidateBySection,
     selectedMatchBySection,
@@ -355,6 +410,7 @@
     sourceVarietyQuality,
     structureQuality,
     matchCoherence,
+    transitionFlowQuality,
     identifyReviewTargets,
     qualityRating,
     assessProposalQuality,
