@@ -26,6 +26,40 @@
     return sections;
   }
 
+  function collectDetectedStructure(profiles=[]){
+    const phrases=[];
+    const sections=[];
+    const seenPhrases=new Set();
+    const seenSections=new Set();
+    const addRows=(target,seen,rows,kind,source)=>{
+      for(const row of Array.isArray(rows)?rows:[]){
+        if(!row)continue;
+        const normalized={
+          ...row,
+          sourceName:row.sourceName??source.sourceName,
+          trackId:row.trackId??source.trackId
+        };
+        const startEight=Math.max(1,Math.round(finite(normalized.startEight,normalized.eight)));
+        const endEight=Math.max(startEight,Math.round(finite(normalized.endEight,startEight)));
+        const key=`${kind}|${normalized.trackId||''}|${normalized.sourceName||''}|${startEight}|${endEight}|${normalized.id||normalized.phrase||''}`;
+        if(seen.has(key))continue;
+        seen.add(key);
+        target.push({...normalized,startEight,endEight});
+      }
+    };
+    for(const profile of Array.isArray(profiles)?profiles:[]){
+      if(!Array.isArray(profile))continue;
+      const first=profile.find(Boolean)||{};
+      const source={sourceName:first.sourceName??null,trackId:first.trackId??null};
+      const structure=profile.structuralAnalysis||profile.structure||{};
+      addRows(phrases,seenPhrases,profile.phrases,'phrase',source);
+      addRows(phrases,seenPhrases,structure.phrases,'phrase',source);
+      addRows(sections,seenSections,profile.sections,'section',source);
+      addRows(sections,seenSections,structure.sections,'section',source);
+    }
+    return {phrases,sections,nonDestructive:true};
+  }
+
   function resolveCores(overrides={}){
     const w=typeof window!=='undefined'?window:{};
     return {
@@ -64,21 +98,30 @@
     const sections=buildSectionsFromEights(project.eights||[]);
     if(!sections.length)return {status:'blocked',reason:'cheer-sections-missing',nonDestructive:true,executable:false};
     const bpm=finite(project.targetBpm,147);
-    const combined=(Array.isArray(profiles)?profiles:[]).flat().filter(Boolean);
+    const profileGroups=Array.isArray(profiles)?profiles:[];
+    const combined=profileGroups.flat().filter(Boolean);
     if(!combined.length)return {status:'blocked',reason:'audio-profiles-missing',nonDestructive:true,executable:false};
+    const detectedStructure=collectDetectedStructure(profileGroups);
 
     const plan=cores.plan.buildCheerPlan({bpm,totalEights:project.eights.length,sections});
-    const matchPlan=cores.matcher.matchPlanSections(plan.sections,combined,{limitPerSection:4,minScore:finite(options.minMatchScore,.42),avoidReuse:true});
+    const matchPlan=cores.matcher.matchPlanSections(plan.sections,combined,{
+      limitPerSection:4,
+      minScore:finite(options.minMatchScore,.42),
+      avoidReuse:true,
+      phrases:detectedStructure.phrases,
+      detectedSections:detectedStructure.sections,
+      minBoundaryConfidence:finite(options.minBoundaryConfidence,.72)
+    });
     if(matchPlan.coverage<1){
-      return {status:'review-required',reason:'not-all-sections-matched',coverage:matchPlan.coverage,matchPlan,nonDestructive:true,executable:false,safePreviewOnly:true};
+      return {status:'review-required',reason:'not-all-sections-matched',coverage:matchPlan.coverage,matchPlan,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
     }
     const optimized=cores.sequence.optimizeMatchedPlan(matchPlan,{allowUnmatched:false});
     if(!optimized?.sequence?.length||optimized.coverage<1){
-      return {status:'review-required',reason:optimized?.reason||'sequence-incomplete',matchPlan,optimized,nonDestructive:true,executable:false,safePreviewOnly:true};
+      return {status:'review-required',reason:optimized?.reason||'sequence-incomplete',matchPlan,optimized,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
     }
     const proposal=cores.package.createProposalPackage({optimized,matchPlan,bpm},{reoptimize:false});
     const withFx=cores.fxIntegration?.attachStructuralCheerFx?cores.fxIntegration.attachStructuralCheerFx(proposal):proposal;
-    return {...withFx,cheerPlan:plan,matchPlan,sourceProfiles:combined.length,generatedAt:Date.now()};
+    return {...withFx,cheerPlan:plan,matchPlan,detectedStructure,sourceProfiles:combined.length,generatedAt:Date.now()};
   }
 
   async function decodeMono(track){
@@ -242,7 +285,7 @@
     o.observe(document.body,{childList:true,subtree:true});
   }
 
-  const api={sectionType,buildSectionsFromEights,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore};
+  const api={sectionType,buildSectionsFromEights,collectDetectedStructure,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixWorkflow=api;
   if(typeof document!=='undefined')(document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init());
