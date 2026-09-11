@@ -29,6 +29,14 @@
     return map;
   }
 
+  function selectedMatchBySection(matchPlan={}){
+    const map=new Map();
+    for(const match of Array.isArray(matchPlan.matches)?matchPlan.matches:[]){
+      if(match?.sectionId)map.set(String(match.sectionId),match);
+    }
+    return map;
+  }
+
   function actualEnergy(candidate={}){
     const value=candidate?.features?.averageEnergy;
     return Number.isFinite(Number(value))?clamp01(value):null;
@@ -143,6 +151,146 @@
     return {score:clamp01(average),average:clamp01(average),weakest:Math.min(...scores)};
   }
 
+  function addReviewTarget(targets,target){
+    const key=[
+      target.kind||'section',
+      target.sectionId||'',
+      target.fromSectionId||'',
+      target.toSectionId||'',
+      target.reason||''
+    ].join('|');
+    const existing=targets.find(row=>row._key===key);
+    if(existing){
+      existing.severity=Math.max(existing.severity,clamp01(target.severity));
+      return;
+    }
+    targets.push({...target,severity:clamp01(target.severity),_key:key});
+  }
+
+  function identifyReviewTargets(proposal={},cheerPlan={},matchPlan={},components={}){
+    const sections=Array.isArray(cheerPlan.sections)?cheerPlan.sections:[];
+    const matches=selectedMatchBySection(matchPlan);
+    const energyRows=new Map(
+      (Array.isArray(components?.energyArc?.rows)?components.energyArc.rows:[])
+        .filter(row=>row?.sectionId)
+        .map(row=>[String(row.sectionId),row])
+    );
+    const targets=[];
+
+    for(let index=0;index<sections.length;index++){
+      const section=sections[index]||{};
+      const sectionId=section.id==null?null:String(section.id);
+      if(!sectionId)continue;
+
+      const energy=energyRows.get(sectionId);
+      if(energy?.fit!=null&&energy.fit<.78){
+        const mismatch=clamp01(1-energy.fit);
+        addReviewTarget(targets,{
+          kind:'section',
+          sectionId,
+          sectionType:section.type||'other',
+          reason:'energy-mismatch',
+          severity:clamp01(.48+mismatch*.52),
+          evidence:{
+            targetEnergy:energy.targetEnergy,
+            actualEnergy:energy.actualEnergy,
+            fit:energy.fit
+          }
+        });
+      }
+
+      const match=matches.get(sectionId);
+      const matchScore=Number(match?.best?.score);
+      if(Number.isFinite(matchScore)&&matchScore<.70){
+        addReviewTarget(targets,{
+          kind:'section',
+          sectionId,
+          sectionType:section.type||'other',
+          reason:'weak-match',
+          severity:clamp01(.52+(.70-clamp01(matchScore))*.9),
+          evidence:{matchScore:clamp01(matchScore)}
+        });
+      }
+
+      if(String(section.type)==='ending'){
+        const actual=energy?.actualEnergy;
+        if(actual!=null&&actual<.72){
+          addReviewTarget(targets,{
+            kind:'section',
+            sectionId,
+            sectionType:'ending',
+            reason:'weak-ending-energy',
+            severity:clamp01(.72+(.72-actual)),
+            evidence:{
+              actualEnergy:actual,
+              minimumRecommended:.72
+            }
+          });
+        }
+        if(index!==sections.length-1){
+          addReviewTarget(targets,{
+            kind:'section',
+            sectionId,
+            sectionType:'ending',
+            reason:'ending-not-last',
+            severity:1,
+            evidence:{sectionIndex:index,lastIndex:sections.length-1}
+          });
+        }
+      }
+    }
+
+    const sequence=Array.isArray(proposal.sequence)?proposal.sequence:[];
+    let runStart=0;
+    for(let index=1;index<=sequence.length;index++){
+      const prev=sequence[index-1];
+      const current=sequence[index];
+      const prevKey=String(prev?.trackId||prev?.sourceName||'unknown');
+      const currentKey=String(current?.trackId||current?.sourceName||'unknown');
+      const ended=index===sequence.length||currentKey!==prevKey;
+      if(!ended)continue;
+      const runLength=index-runStart;
+      if(runLength>=4&&prevKey!=='unknown'){
+        for(let cursor=runStart+1;cursor<index;cursor++){
+          addReviewTarget(targets,{
+            kind:'transition',
+            fromSectionId:sequence[cursor-1]?.sectionId||null,
+            toSectionId:sequence[cursor]?.sectionId||null,
+            reason:'source-overuse',
+            severity:clamp01(.58+(runLength-4)*.09),
+            evidence:{sourceKey:prevKey,runLength}
+          });
+        }
+      }
+      runStart=index;
+    }
+
+    if(components?.energyArc?.targetRange>=.18&&components?.energyArc?.range<.10){
+      const candidates=[...energyRows.values()]
+        .filter(row=>row.actualEnergy!=null)
+        .sort((a,b)=>(a.fit??1)-(b.fit??1))
+        .slice(0,Math.min(2,energyRows.size));
+      for(const row of candidates){
+        addReviewTarget(targets,{
+          kind:'section',
+          sectionId:String(row.sectionId),
+          sectionType:row.sectionType||'other',
+          reason:'flat-energy-arc',
+          severity:.74,
+          evidence:{
+            actualEnergy:row.actualEnergy,
+            targetEnergy:row.targetEnergy,
+            fit:row.fit
+          }
+        });
+      }
+    }
+
+    return targets
+      .sort((a,b)=>b.severity-a.severity || String(a.sectionId||a.toSectionId||'').localeCompare(String(b.sectionId||b.toSectionId||'')))
+      .map(({_key,...target})=>target);
+  }
+
   function qualityRating(score){
     const value=clamp01(score);
     if(value>=.86)return 'strong';
@@ -172,16 +320,20 @@
     if(structure.reasons.includes('weak-ending-energy'))risks.push('weak-ending-energy');
     if(matches.average!=null&&matches.average<.62)risks.push('match-coherence-low');
 
+    const components={
+      energyArc:energy,
+      sourceVariety:variety,
+      structure,
+      matchCoherence:matches
+    };
+    const reviewTargets=identifyReviewTargets(proposal,cheerPlan,matchPlan,components);
+
     return {
       score,
       rating:qualityRating(score),
-      components:{
-        energyArc:energy,
-        sourceVariety:variety,
-        structure,
-        matchCoherence:matches
-      },
+      components,
       risks,
+      reviewTargets,
       readyForFxReview:score>=.74&&!risks.includes('ending-not-last')&&!risks.includes('flat-energy-arc'),
       nonDestructive:true
     };
@@ -198,10 +350,12 @@
     ENERGY_TARGETS,
     targetEnergy,
     selectedCandidateBySection,
+    selectedMatchBySection,
     energyArcQuality,
     sourceVarietyQuality,
     structureQuality,
     matchCoherence,
+    identifyReviewTargets,
     qualityRating,
     assessProposalQuality,
     attachProposalQuality
