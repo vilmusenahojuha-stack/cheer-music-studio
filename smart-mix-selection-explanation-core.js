@@ -117,6 +117,42 @@
       .sort((a,b)=>b.weight-a.weight || b.score-a.score || a.code.localeCompare(b.code));
   }
 
+  function summarizeCandidate(section={},candidate=null){
+    if(!candidate)return null;
+    const reasons=reasonCandidates(section,candidate);
+    return {
+      sourceName:candidate.sourceName||null,
+      trackId:candidate.trackId||null,
+      startEight:candidate.startEight??null,
+      endEight:candidate.endEight??null,
+      score:Number.isFinite(Number(candidate.score))?clamp01(candidate.score):null,
+      primaryReason:reasons[0]||null,
+      reasons:reasons.slice(0,3),
+      nonDestructive:true
+    };
+  }
+
+  function buildRunnerUpComparison(section={},candidate=null,runnerUp=null){
+    if(!candidate||!runnerUp)return null;
+    const selected=summarizeCandidate(section,candidate);
+    const alternative=summarizeCandidate(section,runnerUp);
+    const selectedScore=selected?.score;
+    const alternativeScore=alternative?.score;
+    return {
+      selected,
+      runnerUp:alternative,
+      scoreMargin:Number.isFinite(selectedScore)&&Number.isFinite(alternativeScore)
+        ? Math.max(0,selectedScore-alternativeScore)
+        : null,
+      sameSource:Boolean(
+        selected?.trackId && alternative?.trackId
+          ? selected.trackId===alternative.trackId
+          : selected?.sourceName && alternative?.sourceName && selected.sourceName===alternative.sourceName
+      ),
+      nonDestructive:true
+    };
+  }
+
   function selectionConfidence(candidate={},runnerUp=null){
     const score=clamp01(candidate.score);
     const margin=runnerUp?Math.max(0,score-clamp01(runnerUp.score)):score;
@@ -137,6 +173,7 @@
         primaryReason:null,
         reasons:[],
         evidence:[],
+        comparison:null,
         nonDestructive:true
       };
     }
@@ -154,6 +191,7 @@
       primaryReason:reasons[0]||null,
       reasons:reasons.slice(0,limit),
       evidence:reasons,
+      comparison:buildRunnerUpComparison(section,candidate,runnerUp),
       sourceName:candidate.sourceName||null,
       trackId:candidate.trackId||null,
       startEight:candidate.startEight??null,
@@ -202,6 +240,8 @@
   const api={
     REASON_LABELS,
     reasonCandidates,
+    summarizeCandidate,
+    buildRunnerUpComparison,
     selectionConfidence,
     explainCandidate,
     explainMatch,
