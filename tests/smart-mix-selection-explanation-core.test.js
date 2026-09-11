@@ -46,9 +46,16 @@ const peak={
 
 const runnerUp={
   ...peak,
+  sourceName:'alternative.wav',
+  trackId:'alternative-track',
   startEight:1,
   endEight:4,
   score:.84,
+  components:{
+    ...peak.components,
+    energy:.78,
+    transition:.82
+  },
   sectionPurpose:{
     ...peak.sectionPurpose,
     score:.72,
@@ -82,11 +89,30 @@ assert.ok(Math.abs(explanation.margin-.07)<1e-9);
 assert.ok(explanation.confidence>.8);
 assert.equal(explanation.nonDestructive,true);
 
+assert.ok(explanation.comparison,'runner-up comparison should be attached');
+assert.equal(explanation.comparison.selected.sourceName,'purpose.wav');
+assert.equal(explanation.comparison.runnerUp.sourceName,'alternative.wav');
+assert.equal(explanation.comparison.selected.startEight,5);
+assert.equal(explanation.comparison.runnerUp.startEight,1);
+assert.equal(explanation.comparison.selected.primaryReason.code,'purpose');
+assert.equal(explanation.comparison.runnerUp.primaryReason.code,'boundary');
+assert.ok(Math.abs(explanation.comparison.scoreMargin-.07)<1e-9);
+assert.equal(explanation.comparison.sameSource,false);
+assert.equal(explanation.comparison.nonDestructive,true);
+
+const sameSourceComparison=core.buildRunnerUpComparison(
+  {type:'stunt',energy:'high'},
+  peak,
+  {...runnerUp,sourceName:'purpose.wav',trackId:'purpose-track'}
+);
+assert.equal(sameSourceComparison.sameSource,true);
+
 const noCandidate=core.explainCandidate({type:'stunt'},null);
 assert.equal(noCandidate.selected,false);
 assert.equal(noCandidate.confidence,0);
 assert.equal(noCandidate.primaryReason,null);
 assert.deepEqual(noCandidate.evidence,[]);
+assert.equal(noCandidate.comparison,null);
 
 const fallback={
   ...peak,
@@ -109,6 +135,7 @@ const plan=core.explainPlanMatches({
   matches:[{
     sectionId:'stunt',
     sectionType:'stunt',
+    energy:'high',
     best:peak,
     candidates:[peak,runnerUp]
   }]
@@ -117,6 +144,15 @@ assert.equal(plan.matches.length,1);
 assert.equal(plan.matches[0].sectionId,'stunt');
 assert.equal(plan.matches[0].explanation.primaryReason.code,'purpose');
 assert.ok(plan.matches[0].explanation.evidence.length>=5);
+assert.equal(plan.matches[0].explanation.comparison.runnerUp.sourceName,'alternative.wav');
 assert.equal(plan.nonDestructive,true);
 
-console.log('smart-mix selection explanation evidence tests passed');
+const single=core.explainCandidate(
+  {id:'stunt',type:'stunt',energy:'high'},
+  peak,
+  {runnerUp:null}
+);
+assert.equal(single.comparison,null);
+assert.equal(single.margin,null);
+
+console.log('smart-mix selection runner-up comparison tests passed');
