@@ -34,11 +34,7 @@
     const addRows=(target,seen,rows,kind,source)=>{
       for(const row of Array.isArray(rows)?rows:[]){
         if(!row)continue;
-        const normalized={
-          ...row,
-          sourceName:row.sourceName??source.sourceName,
-          trackId:row.trackId??source.trackId
-        };
+        const normalized={...row,sourceName:row.sourceName??source.sourceName,trackId:row.trackId??source.trackId};
         const startEight=Math.max(1,Math.round(finite(normalized.startEight,normalized.eight)));
         const endEight=Math.max(startEight,Math.round(finite(normalized.endEight,startEight)));
         const key=`${kind}|${normalized.trackId||''}|${normalized.sourceName||''}|${startEight}|${endEight}|${normalized.id||normalized.phrase||''}`;
@@ -66,6 +62,7 @@
       profile:overrides.profile||w.CheerAudioProfileCore,
       alignment:overrides.alignment||w.CheerEightAlignmentCore,
       structure:overrides.structure||w.CheerStructureCore,
+      sourceStructure:overrides.sourceStructure||w.SmartMixSourceStructureCore,
       plan:overrides.plan||w.CheerPlanCore,
       matcher:overrides.matcher||w.SmartMixSegmentMatcherCore,
       sequence:overrides.sequence||w.SmartMixSequenceCore,
@@ -105,20 +102,13 @@
 
     const plan=cores.plan.buildCheerPlan({bpm,totalEights:project.eights.length,sections});
     const matchPlan=cores.matcher.matchPlanSections(plan.sections,combined,{
-      limitPerSection:4,
-      minScore:finite(options.minMatchScore,.42),
-      avoidReuse:true,
-      phrases:detectedStructure.phrases,
-      detectedSections:detectedStructure.sections,
+      limitPerSection:4,minScore:finite(options.minMatchScore,.42),avoidReuse:true,
+      phrases:detectedStructure.phrases,detectedSections:detectedStructure.sections,
       minBoundaryConfidence:finite(options.minBoundaryConfidence,.72)
     });
-    if(matchPlan.coverage<1){
-      return {status:'review-required',reason:'not-all-sections-matched',coverage:matchPlan.coverage,matchPlan,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
-    }
+    if(matchPlan.coverage<1)return {status:'review-required',reason:'not-all-sections-matched',coverage:matchPlan.coverage,matchPlan,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
     const optimized=cores.sequence.optimizeMatchedPlan(matchPlan,{allowUnmatched:false});
-    if(!optimized?.sequence?.length||optimized.coverage<1){
-      return {status:'review-required',reason:optimized?.reason||'sequence-incomplete',matchPlan,optimized,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
-    }
+    if(!optimized?.sequence?.length||optimized.coverage<1)return {status:'review-required',reason:optimized?.reason||'sequence-incomplete',matchPlan,optimized,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
     const proposal=cores.package.createProposalPackage({optimized,matchPlan,bpm},{reoptimize:false});
     const withFx=cores.fxIntegration?.attachStructuralCheerFx?cores.fxIntegration.attachStructuralCheerFx(proposal):proposal;
     return {...withFx,cheerPlan:plan,matchPlan,detectedStructure,sourceProfiles:combined.length,generatedAt:Date.now()};
@@ -141,48 +131,37 @@
     const eightSeconds=480/item.bpm;
     const available=Math.max(0,finite(pcm.duration)-finite(oneOffset));
     const totalEights=Math.max(0,Math.floor(available/eightSeconds));
-    return core.analyzeEightCountEnergy(pcm.samples,{
-      sampleRate:pcm.sampleRate,
-      bpm:item.bpm,
-      oneOffset:finite(oneOffset),
-      totalEights,
-      sourceName:item.track.name,
-      trackId:item.track.id||item.track.name
-    });
+    return core.analyzeEightCountEnergy(pcm.samples,{sampleRate:pcm.sampleRate,bpm:item.bpm,oneOffset:finite(oneOffset),totalEights,sourceName:item.track.name,trackId:item.track.id||item.track.name});
   }
 
   function refineProfileAlignment(profile,project,item,options,cores){
-    if(!cores.alignment?.alignProfileEightCounts||!cores.structure?.buildIntelligentEightCountMap){
-      return {accepted:false,reason:'alignment-core-unavailable',oneOffset:finite(item.meta.oneOffset),profile};
-    }
+    if(!cores.alignment?.alignProfileEightCounts||!cores.structure?.buildIntelligentEightCountMap)return {accepted:false,reason:'alignment-core-unavailable',oneOffset:finite(item.meta.oneOffset),profile};
     const alignment=cores.alignment.alignProfileEightCounts(profile,{
-      bpm:item.bpm,
-      oneOffset:finite(item.meta.oneOffset),
-      sections:buildSectionsFromEights(project?.eights||[]),
-      minAlignmentConfidence:options.minAlignmentConfidence,
-      minAlignmentSupport:options.minAlignmentSupport,
-      maxResidualBeats:options.maxResidualBeats,
-      strongConfidence:options.strongAlignmentConfidence,
-      strongSupport:options.strongAlignmentSupport,
-      reviewConfidence:options.reviewAlignmentConfidence,
-      reviewSupport:options.reviewAlignmentSupport
-    },{
-      structureCore:cores.structure,
-      profileCore:cores.profile
-    });
+      bpm:item.bpm,oneOffset:finite(item.meta.oneOffset),sections:buildSectionsFromEights(project?.eights||[]),
+      minAlignmentConfidence:options.minAlignmentConfidence,minAlignmentSupport:options.minAlignmentSupport,maxResidualBeats:options.maxResidualBeats,
+      strongConfidence:options.strongAlignmentConfidence,strongSupport:options.strongAlignmentSupport,
+      reviewConfidence:options.reviewAlignmentConfidence,reviewSupport:options.reviewAlignmentSupport
+    },{structureCore:cores.structure,profileCore:cores.profile});
     return {...alignment,profile};
   }
 
   function resolveAlignmentUse(alignment={}){
     const reliability=alignment?.reliability||null;
     const level=reliability?.level||'manual';
-    return {
-      level,
-      canAutoUse:reliability?.canAutoUse===true&&level==='strong'&&alignment?.accepted===true,
-      needsReview:level==='review'||reliability?.needsReview===true,
-      useManualCountOne:level==='manual'||reliability?.useManualCountOne===true,
-      reason:reliability?.reason||alignment?.reason||'use-manual-count-one'
-    };
+    return {level,canAutoUse:reliability?.canAutoUse===true&&level==='strong'&&alignment?.accepted===true,needsReview:level==='review'||reliability?.needsReview===true,useManualCountOne:level==='manual'||reliability?.useManualCountOne===true,reason:reliability?.reason||alignment?.reason||'use-manual-count-one'};
+  }
+
+  function attachSourceStructure(profile,options,cores){
+    if(!Array.isArray(profile))return profile;
+    let structuralAnalysis={phrases:[],sections:[],events:[],source:'fallback',confidence:0,nonDestructive:true};
+    if(cores.sourceStructure?.inferSourceStructure){
+      structuralAnalysis=cores.sourceStructure.inferSourceStructure(profile,{
+        minEventConfidence:finite(options.minSourceEventConfidence,.72),
+        phraseEights:finite(options.sourcePhraseEights,4)
+      },{profileCore:cores.profile});
+    }
+    Object.defineProperty(profile,'structuralAnalysis',{value:{...structuralAnalysis,nonDestructive:true},enumerable:false,configurable:true});
+    return profile;
   }
 
   async function analyzeReadyTracks(project,ready,onProgress=()=>{},options={}){
@@ -199,25 +178,10 @@
       const alignmentUse=resolveAlignmentUse(alignment);
       const alignedOffset=finite(alignment.oneOffset,originalOffset);
       const shouldReanalyze=alignmentUse.canAutoUse&&Math.abs(alignedOffset-originalOffset)>1e-6;
-      if(shouldReanalyze){
-        profile=analyzeProfile(core,pcm,item,alignedOffset);
-      }
+      if(shouldReanalyze)profile=analyzeProfile(core,pcm,item,alignedOffset);
       if(Array.isArray(profile)){
-        Object.defineProperty(profile,'eightAlignment',{value:{
-          accepted:alignment.accepted===true,
-          reason:alignment.reason||null,
-          source:alignment.source||null,
-          originalOneOffset:originalOffset,
-          oneOffset:shouldReanalyze?alignedOffset:originalOffset,
-          confidence:finite(alignment.alignment?.confidence,0),
-          support:finite(alignment.alignment?.support,0),
-          reliabilityLevel:alignmentUse.level,
-          canAutoUse:alignmentUse.canAutoUse,
-          needsReview:alignmentUse.needsReview,
-          useManualCountOne:alignmentUse.useManualCountOne,
-          reanalyzed:shouldReanalyze,
-          nonDestructive:true
-        },enumerable:false,configurable:true});
+        Object.defineProperty(profile,'eightAlignment',{value:{accepted:alignment.accepted===true,reason:alignment.reason||null,source:alignment.source||null,originalOneOffset:originalOffset,oneOffset:shouldReanalyze?alignedOffset:originalOffset,confidence:finite(alignment.alignment?.confidence,0),support:finite(alignment.alignment?.support,0),reliabilityLevel:alignmentUse.level,canAutoUse:alignmentUse.canAutoUse,needsReview:alignmentUse.needsReview,useManualCountOne:alignmentUse.useManualCountOne,reanalyzed:shouldReanalyze,nonDestructive:true},enumerable:false,configurable:true});
+        attachSourceStructure(profile,options,cores);
       }
       profiles.push(profile);onProgress({phase:'profile',done:i+1,total:ready.length,name:item.track.name});
     }
@@ -250,11 +214,8 @@
       if(typeof scheduleSave==='function')scheduleSave();
       if(status)status.textContent=statusText(result);
       if(btn)btn.textContent=result.status==='preview-ready'?'✓ Smart Mix 2.0 valmis':'✨ Tee Smart Mix 2.0';
-    }catch(error){
-      console.error(error);
-      if(status)status.textContent=`Smart Mix epäonnistui: ${error?.message||error}`;
-      if(btn)btn.textContent='✨ Tee Smart Mix 2.0';
-    }finally{if(btn)btn.disabled=false;}
+    }catch(error){console.error(error);if(status)status.textContent=`Smart Mix epäonnistui: ${error?.message||error}`;if(btn)btn.textContent='✨ Tee Smart Mix 2.0';}
+    finally{if(btn)btn.disabled=false;}
   }
 
   function mountUi(){
@@ -269,23 +230,25 @@
 
   function ensureEightAlignmentCore(){
     if(typeof document==='undefined'||(typeof window!=='undefined'&&window.CheerEightAlignmentCore)||document.querySelector('script[data-cheer-eight-alignment-core]'))return false;
-    const script=document.createElement('script');
-    script.src='cheer-eight-alignment-core.js?v=5.0p2m';
-    script.dataset.cheerEightAlignmentCore='1';
-    script.async=false;
-    script.onerror=()=>console.warn('Älykästä 8-count-kohdistusydintä ei voitu ladata; Smart Mix käyttää nykyistä 1-laskua.');
-    document.head.appendChild(script);
-    return true;
+    const script=document.createElement('script');script.src='cheer-eight-alignment-core.js?v=5.0p2m';script.dataset.cheerEightAlignmentCore='1';script.async=false;
+    script.onerror=()=>console.warn('Älykästä 8-count-kohdistusydintä ei voitu ladata; Smart Mix käyttää nykyistä 1-laskua.');document.head.appendChild(script);return true;
+  }
+
+  function ensureSourceStructureCore(){
+    if(typeof document==='undefined'||(typeof window!=='undefined'&&window.SmartMixSourceStructureCore)||document.querySelector('script[data-smart-mix-source-structure-core]'))return false;
+    const script=document.createElement('script');script.src='smart-mix-source-structure-core.js?v=5.0p2n';script.dataset.smartMixSourceStructureCore='1';script.async=false;
+    script.onerror=()=>console.warn('Source-rakenneydintä ei voitu ladata; Smart Mix käyttää nykyistä 4×8-fallback-rakennetta.');document.head.appendChild(script);return true;
   }
 
   function init(){
     ensureEightAlignmentCore();
+    ensureSourceStructureCore();
     if(mountUi())return;
     const o=new MutationObserver(()=>{if(mountUi())o.disconnect();});
     o.observe(document.body,{childList:true,subtree:true});
   }
 
-  const api={sectionType,buildSectionsFromEights,collectDetectedStructure,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore};
+  const api={sectionType,buildSectionsFromEights,collectDetectedStructure,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,attachSourceStructure,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore,ensureSourceStructureCore};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixWorkflow=api;
   if(typeof document!=='undefined')(document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init());
