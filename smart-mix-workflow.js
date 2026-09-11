@@ -68,7 +68,8 @@
       sequence:overrides.sequence||w.SmartMixSequenceCore,
       package:overrides.package||w.SmartMixProposalPackageCore,
       fxIntegration:overrides.fxIntegration||w.SmartMixCheerFxIntegrationCore,
-      explanation:overrides.explanation||w.SmartMixSelectionExplanationCore
+      explanation:overrides.explanation||w.SmartMixSelectionExplanationCore,
+      wholeMixQuality:overrides.wholeMixQuality||w.SmartMixWholeMixQualityCore
     };
   }
 
@@ -111,7 +112,8 @@
     const optimized=cores.sequence.optimizeMatchedPlan(matchPlan,{allowUnmatched:false});
     if(!optimized?.sequence?.length||optimized.coverage<1)return {status:'review-required',reason:optimized?.reason||'sequence-incomplete',matchPlan,optimized,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
     const proposal=cores.package.createProposalPackage({optimized,matchPlan,bpm},{reoptimize:false});
-    const withFx=cores.fxIntegration?.attachStructuralCheerFx?cores.fxIntegration.attachStructuralCheerFx(proposal):proposal;
+    const withQuality=cores.wholeMixQuality?.attachProposalQuality?cores.wholeMixQuality.attachProposalQuality(proposal,plan,matchPlan,{availableSources:profileGroups.length}):proposal;
+    const withFx=cores.fxIntegration?.attachStructuralCheerFx?cores.fxIntegration.attachStructuralCheerFx(withQuality):withQuality;
     const withExplanation=cores.explanation?.attachExplanationsToProposal?cores.explanation.attachExplanationsToProposal(withFx,matchPlan):withFx;
     return {...withExplanation,cheerPlan:plan,matchPlan,detectedStructure,sourceProfiles:combined.length,generatedAt:Date.now()};
   }
@@ -248,16 +250,23 @@
     script.onerror=()=>console.warn('Smart Mix -valintaperusteluita ei voitu ladata; proposal toimii ilman selityskerrosta.');document.head.appendChild(script);return true;
   }
 
+  function ensureWholeMixQualityCore(){
+    if(typeof document==='undefined'||(typeof window!=='undefined'&&window.SmartMixWholeMixQualityCore)||document.querySelector('script[data-smart-mix-whole-mix-quality-core]'))return false;
+    const script=document.createElement('script');script.src='smart-mix-whole-mix-quality-core.js?v=5.0p2p';script.dataset.smartMixWholeMixQualityCore='1';script.async=false;
+    script.onerror=()=>console.warn('Smart Mix -kokonaislaatuarviota ei voitu ladata; proposal toimii ilman quality-metadataa.');document.head.appendChild(script);return true;
+  }
+
   function init(){
     ensureEightAlignmentCore();
     ensureSourceStructureCore();
     ensureSelectionExplanationCore();
+    ensureWholeMixQualityCore();
     if(mountUi())return;
     const o=new MutationObserver(()=>{if(mountUi())o.disconnect();});
     o.observe(document.body,{childList:true,subtree:true});
   }
 
-  const api={sectionType,buildSectionsFromEights,collectDetectedStructure,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,attachSourceStructure,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore,ensureSourceStructureCore,ensureSelectionExplanationCore};
+  const api={sectionType,buildSectionsFromEights,collectDetectedStructure,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,attachSourceStructure,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore,ensureSourceStructureCore,ensureSelectionExplanationCore,ensureWholeMixQualityCore};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixWorkflow=api;
   if(typeof document!=='undefined')(document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init());
