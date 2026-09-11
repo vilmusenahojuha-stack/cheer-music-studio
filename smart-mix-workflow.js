@@ -67,7 +67,8 @@
       matcher:overrides.matcher||w.SmartMixSegmentMatcherCore,
       sequence:overrides.sequence||w.SmartMixSequenceCore,
       package:overrides.package||w.SmartMixProposalPackageCore,
-      fxIntegration:overrides.fxIntegration||w.SmartMixCheerFxIntegrationCore
+      fxIntegration:overrides.fxIntegration||w.SmartMixCheerFxIntegrationCore,
+      explanation:overrides.explanation||w.SmartMixSelectionExplanationCore
     };
   }
 
@@ -111,7 +112,8 @@
     if(!optimized?.sequence?.length||optimized.coverage<1)return {status:'review-required',reason:optimized?.reason||'sequence-incomplete',matchPlan,optimized,detectedStructure,nonDestructive:true,executable:false,safePreviewOnly:true};
     const proposal=cores.package.createProposalPackage({optimized,matchPlan,bpm},{reoptimize:false});
     const withFx=cores.fxIntegration?.attachStructuralCheerFx?cores.fxIntegration.attachStructuralCheerFx(proposal):proposal;
-    return {...withFx,cheerPlan:plan,matchPlan,detectedStructure,sourceProfiles:combined.length,generatedAt:Date.now()};
+    const withExplanation=cores.explanation?.attachExplanationsToProposal?cores.explanation.attachExplanationsToProposal(withFx,matchPlan):withFx;
+    return {...withExplanation,cheerPlan:plan,matchPlan,detectedStructure,sourceProfiles:combined.length,generatedAt:Date.now()};
   }
 
   async function decodeMono(track){
@@ -240,15 +242,22 @@
     script.onerror=()=>console.warn('Source-rakenneydintä ei voitu ladata; Smart Mix käyttää nykyistä 4×8-fallback-rakennetta.');document.head.appendChild(script);return true;
   }
 
+  function ensureSelectionExplanationCore(){
+    if(typeof document==='undefined'||(typeof window!=='undefined'&&window.SmartMixSelectionExplanationCore)||document.querySelector('script[data-smart-mix-selection-explanation-core]'))return false;
+    const script=document.createElement('script');script.src='smart-mix-selection-explanation-core.js?v=5.0p2o';script.dataset.smartMixSelectionExplanationCore='1';script.async=false;
+    script.onerror=()=>console.warn('Smart Mix -valintaperusteluita ei voitu ladata; proposal toimii ilman selityskerrosta.');document.head.appendChild(script);return true;
+  }
+
   function init(){
     ensureEightAlignmentCore();
     ensureSourceStructureCore();
+    ensureSelectionExplanationCore();
     if(mountUi())return;
     const o=new MutationObserver(()=>{if(mountUi())o.disconnect();});
     o.observe(document.body,{childList:true,subtree:true});
   }
 
-  const api={sectionType,buildSectionsFromEights,collectDetectedStructure,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,attachSourceStructure,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore,ensureSourceStructureCore};
+  const api={sectionType,buildSectionsFromEights,collectDetectedStructure,validateTrackReadiness,createProposalFromProfiles,analyzeProfile,refineProfileAlignment,resolveAlignmentUse,attachSourceStructure,analyzeReadyTracks,buildWholeMixProposal,statusText,runFromUi,ensureEightAlignmentCore,ensureSourceStructureCore,ensureSelectionExplanationCore};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixWorkflow=api;
   if(typeof document!=='undefined')(document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init());
