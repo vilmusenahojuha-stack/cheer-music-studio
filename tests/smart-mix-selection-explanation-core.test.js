@@ -72,6 +72,12 @@ const explanation=core.explainCandidate(
 assert.equal(explanation.selected,true);
 assert.equal(explanation.primaryReason.code,'purpose');
 assert.equal(explanation.reasons.length,3);
+assert.equal(explanation.evidence.length,reasons.length);
+assert.ok(explanation.evidence.some(row=>row.code==='purpose'));
+assert.ok(explanation.evidence.some(row=>row.code==='energy'));
+assert.ok(explanation.evidence.some(row=>row.code==='transition'));
+assert.ok(explanation.evidence.some(row=>row.code==='boundary'));
+assert.ok(explanation.evidence.some(row=>row.code==='phrase'));
 assert.ok(Math.abs(explanation.margin-.07)<1e-9);
 assert.ok(explanation.confidence>.8);
 assert.equal(explanation.nonDestructive,true);
@@ -80,6 +86,7 @@ const noCandidate=core.explainCandidate({type:'stunt'},null);
 assert.equal(noCandidate.selected,false);
 assert.equal(noCandidate.confidence,0);
 assert.equal(noCandidate.primaryReason,null);
+assert.deepEqual(noCandidate.evidence,[]);
 
 const fallback={
   ...peak,
@@ -109,6 +116,7 @@ const plan=core.explainPlanMatches({
 assert.equal(plan.matches.length,1);
 assert.equal(plan.matches[0].sectionId,'stunt');
 assert.equal(plan.matches[0].explanation.primaryReason.code,'purpose');
+assert.ok(plan.matches[0].explanation.evidence.length>=5);
 assert.equal(plan.nonDestructive,true);
 
-console.log('smart-mix selection explanation tests passed');
+console.log('smart-mix selection explanation evidence tests passed');
