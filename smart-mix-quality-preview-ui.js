@@ -139,6 +139,55 @@
     };
   }
 
+  function reviewNavigationSectionId(target){
+    if(!target)return null;
+    if(target.kind==='transition'){
+      return target.toSectionId||target.fromSectionId||null;
+    }
+    return target.sectionId||null;
+  }
+
+  function reviewNavigationIndex(proposalPackage,target){
+    const sectionId=reviewNavigationSectionId(target);
+    if(!sectionId)return -1;
+    const matches=Array.isArray(proposalPackage?.smartMixSelectionExplanation?.matches)
+      ?proposalPackage.smartMixSelectionExplanation.matches
+      :[];
+    return matches.findIndex(row=>String(row?.sectionId||'')===String(sectionId));
+  }
+
+  function navigateToReviewTarget(project,target){
+    if(typeof document==='undefined')return false;
+    const proposalPackage=wholeMixPackage(project);
+    const index=reviewNavigationIndex(proposalPackage,target);
+    if(index<0)return false;
+
+    const cards=[...document.querySelectorAll(
+      '#smartMixSelectionExplanation .smart-mix-selection-explanation-card'
+    )];
+    const card=cards[index];
+    if(!card)return false;
+
+    card.scrollIntoView?.({behavior:'smooth',block:'center'});
+    if(!card.hasAttribute?.('tabindex'))card.tabIndex=-1;
+    try{card.focus?.({preventScroll:true});}catch(_){card.focus?.();}
+
+    if(card.style){
+      const oldOutline=card.style.outline;
+      const oldOffset=card.style.outlineOffset;
+      card.style.outline='2px solid currentColor';
+      card.style.outlineOffset='3px';
+      if(typeof setTimeout==='function'){
+        setTimeout(()=>{
+          if(!card?.style)return;
+          card.style.outline=oldOutline;
+          card.style.outlineOffset=oldOffset;
+        },1600);
+      }
+    }
+    return true;
+  }
+
   function scoreClass(score){
     const value=clamp01(score);
     if(value>=.80)return 'good';
@@ -146,7 +195,7 @@
     return 'bad';
   }
 
-  function renderReviewTargets(card,view){
+  function renderReviewTargets(card,view,project){
     if(!view.reviewTargets.length)return;
 
     const title=document.createElement('strong');
@@ -165,12 +214,23 @@
       if(target.sectionId)row.dataset.sectionId=target.sectionId;
       if(target.fromSectionId)row.dataset.fromSectionId=target.fromSectionId;
       if(target.toSectionId)row.dataset.toSectionId=target.toSectionId;
+      row.setAttribute('role','button');
+      row.setAttribute('tabindex','0');
+      row.setAttribute('aria-label',`Näytä tarkistettava kohta: ${target.label}. ${target.reasonLabel}`);
+
+      const openTarget=()=>navigateToReviewTarget(project,target);
+      row.addEventListener('click',openTarget);
+      row.addEventListener('keydown',event=>{
+        if(event.key!=='Enter'&&event.key!==' ')return;
+        event.preventDefault();
+        openTarget();
+      });
 
       const label=document.createElement('strong');
       label.textContent=`${target.label} · ${target.severityPercent}%`;
 
       const reason=document.createElement('span');
-      reason.textContent=target.reasonLabel;
+      reason.textContent=`${target.reasonLabel} · Avaa kohta`;
 
       row.append(label,reason);
       list.appendChild(row);
@@ -228,7 +288,7 @@
       card.appendChild(ok);
     }
 
-    renderReviewTargets(card,view);
+    renderReviewTargets(card,view,project);
     host.appendChild(card);
     return true;
   }
@@ -288,6 +348,9 @@
     wholeMixPackage,
     buildReviewTargets,
     buildWholeMixQualityView,
+    reviewNavigationSectionId,
+    reviewNavigationIndex,
+    navigateToReviewTarget,
     renderWholeMixQuality,
     mount
   };
