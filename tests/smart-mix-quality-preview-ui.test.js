@@ -3,7 +3,14 @@ const ui=require('../smart-mix-quality-preview-ui.js');
 
 const proposal={
   audioTimelinePlan:{clips:[{id:'keep-me'}]},
-  smartMixSelectionExplanation:{matches:[{sectionId:'stunt'}]},
+  smartMixSelectionExplanation:{
+    matches:[
+      {sectionId:'intro'},
+      {sectionId:'stunt'},
+      {sectionId:'pyramid'},
+      {sectionId:'ending'}
+    ]
+  },
   smartMixWholeMixQuality:{
     score:.87,
     rating:'strong',
@@ -88,6 +95,18 @@ assert.equal(risky.reviewTargets[2].kind,'transition');
 assert.equal(risky.reviewTargets[2].label,'Siirtymä stunt → pyramid');
 assert.equal(risky.reviewTargets[2].reasonLabel,'Samaa lähdekappaletta jatkuu liian pitkään');
 
+assert.equal(ui.reviewNavigationSectionId(risky.reviewTargets[0]),'ending');
+assert.equal(ui.reviewNavigationIndex(proposal,risky.reviewTargets[0]),3);
+assert.equal(ui.reviewNavigationSectionId(risky.reviewTargets[2]),'pyramid');
+assert.equal(ui.reviewNavigationIndex(proposal,risky.reviewTargets[2]),2);
+
+const transitionFallback={kind:'transition',fromSectionId:'stunt',toSectionId:null};
+assert.equal(ui.reviewNavigationSectionId(transitionFallback),'stunt');
+assert.equal(ui.reviewNavigationIndex(proposal,transitionFallback),1);
+assert.equal(ui.reviewNavigationIndex(proposal,{kind:'section',sectionId:'missing'}),-1);
+assert.equal(ui.reviewNavigationIndex({},risky.reviewTargets[0]),-1);
+assert.equal(ui.navigateToReviewTarget({},risky.reviewTargets[0]),false);
+
 const unknown=ui.buildReviewTargets({
   reviewTargets:[{
     kind:'section',
@@ -115,6 +134,6 @@ const project={
 assert.strictEqual(ui.wholeMixPackage(project),proposal);
 
 assert.deepEqual(proposal.audioTimelinePlan,{clips:[{id:'keep-me'}]});
-assert.deepEqual(proposal.smartMixSelectionExplanation,{matches:[{sectionId:'stunt'}]});
+assert.deepEqual(proposal.smartMixSelectionExplanation.matches.map(row=>row.sectionId),['intro','stunt','pyramid','ending']);
 
-console.log('smart-mix whole quality preview tests passed');
+console.log('smart-mix whole quality preview navigation tests passed');
