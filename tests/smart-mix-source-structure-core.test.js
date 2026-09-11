@@ -24,10 +24,21 @@ assert.equal(result.events.length,2);
 assert.deepEqual(result.sections.map(section=>[section.startEight,section.endEight,section.boundaryType]),[
   [1,4,'track-start'],[5,8,'break'],[9,12,'drop']
 ]);
+assert.deepEqual(result.sections.map(section=>section.purpose),['buildup','reset','peak']);
+assert(result.sections[0].energyDelta>.1,'rising energy should mark the opening section as buildup');
+assert(result.sections[1].energyAverage<.34,'break section should expose its low energy average');
+assert(result.sections[2].energyAverage>.72,'drop section should expose its high energy average');
 assert.deepEqual(result.phrases.map(phrase=>[phrase.startEight,phrase.endEight]),[[1,4],[5,8],[9,12]]);
+assert.deepEqual(result.phrases.map(phrase=>phrase.sectionPurpose),['buildup','reset','peak']);
 assert.equal(result.sections[1].sourceName,'A.wav');
 assert.equal(result.sections[1].trackId,'A');
 assert(result.confidence>.9);
+
+const impactRows=profile.map((row,i)=>({...row,energyScore:i<8?.5:.6}));
+assert.equal(core.classifySection({startEight:9,endEight:12,incomingEvent:'drop'},impactRows).purpose,'impact');
+
+const neutralRows=profile.map(row=>({...row,energyScore:.5}));
+assert.equal(core.classifySection({startEight:1,endEight:4,incomingEvent:'break'},neutralRows).purpose,'transition');
 
 const lowConfidence=core.inferSourceStructure(profile,{minEventConfidence:.95},{profileCore});
 assert.equal(lowConfidence.source,'fallback');
