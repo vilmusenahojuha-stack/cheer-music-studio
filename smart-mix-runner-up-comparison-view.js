@@ -8,6 +8,19 @@
   const clamp01=value=>Math.max(0,Math.min(1,finite(value)));
   const percent=value=>Math.round(clamp01(value)*100);
 
+  const CRITERION_LABELS=Object.freeze({
+    purpose:'Osuuden tarkoitus',
+    energy:'Energia',
+    boundary:'Rakenneraja',
+    transition:'Break/drop-sisääntulo',
+    phrase:'8-count-fraasiraja',
+    continuity:'Jatkuvuus'
+  });
+
+  const CRITERION_ORDER=Object.freeze([
+    'purpose','energy','boundary','transition','phrase','continuity'
+  ]);
+
   function rangeText(candidate={}){
     const start=Number.isFinite(Number(candidate.startEight))
       ?Math.max(1,Math.round(Number(candidate.startEight)))
@@ -50,6 +63,58 @@
     };
   }
 
+  function reasonMap(candidate={}){
+    const map=new Map();
+    const rows=Array.isArray(candidate?.reasons)?candidate.reasons:[];
+    for(const reason of rows){
+      if(!reason?.code||map.has(reason.code))continue;
+      const score=Number.isFinite(Number(reason.score))
+        ?clamp01(reason.score)
+        :null;
+      if(score==null)continue;
+      map.set(String(reason.code),{
+        code:String(reason.code),
+        label:reason.label||CRITERION_LABELS[reason.code]||String(reason.code),
+        score,
+        scorePercent:percent(score)
+      });
+    }
+    return map;
+  }
+
+  function buildCriterionRows(selected={},runnerUp={}){
+    const selectedMap=reasonMap(selected);
+    const runnerMap=reasonMap(runnerUp);
+    const codes=[
+      ...CRITERION_ORDER,
+      ...[...selectedMap.keys(),...runnerMap.keys()]
+        .filter(code=>!CRITERION_ORDER.includes(code))
+        .sort()
+    ].filter((code,index,all)=>all.indexOf(code)===index);
+
+    return codes
+      .map(code=>{
+        const a=selectedMap.get(code)||null;
+        const b=runnerMap.get(code)||null;
+        if(!a&&!b)return null;
+        const selectedPercent=a?.scorePercent??null;
+        const runnerUpPercent=b?.scorePercent??null;
+        const delta=selectedPercent!=null&&runnerUpPercent!=null
+          ?selectedPercent-runnerUpPercent
+          :null;
+        return {
+          code,
+          label:CRITERION_LABELS[code]||a?.label||b?.label||code,
+          selectedPercent,
+          runnerUpPercent,
+          deltaPercent:delta,
+          advantage:delta==null?'unknown':delta>0?'selected':delta<0?'runnerUp':'tie',
+          nonDestructive:true
+        };
+      })
+      .filter(Boolean);
+  }
+
   function advantageText(comparison={}){
     const margin=Number.isFinite(Number(comparison.scoreMargin))
       ?clamp01(comparison.scoreMargin)
@@ -72,6 +137,8 @@
         scoreMargin:null,
         scoreMarginPercent:null,
         sameSource:false,
+        sourceRelation:null,
+        criterionRows:[],
         advantageText:null,
         reviewRecommended:false,
         nonDestructive:true
@@ -93,6 +160,7 @@
       scoreMarginPercent:margin==null?null:percent(margin),
       sameSource,
       sourceRelation:sameSource?'Sama lähdekappale':'Eri lähdekappaleet',
+      criterionRows:buildCriterionRows(comparison.selected,comparison.runnerUp),
       advantageText:advantageText(comparison),
       reviewRecommended:margin!=null&&margin<=.03,
       nonDestructive:true
@@ -100,9 +168,13 @@
   }
 
   const api={
+    CRITERION_LABELS,
+    CRITERION_ORDER,
     rangeText,
     reasonText,
     candidateView,
+    reasonMap,
+    buildCriterionRows,
     advantageText,
     buildRunnerUpComparisonView
   };

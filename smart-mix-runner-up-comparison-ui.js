@@ -62,6 +62,7 @@
         runnerUp:null,
         scoreMarginPercent:null,
         sourceRelation:null,
+        criterionRows:[],
         advantageText:null,
         reviewRecommended:false,
         nonDestructive:true
@@ -76,6 +77,7 @@
       runnerUp:comparison.runnerUp,
       scoreMarginPercent:comparison.scoreMarginPercent,
       sourceRelation:comparison.sourceRelation,
+      criterionRows:Array.isArray(comparison.criterionRows)?comparison.criterionRows:[],
       advantageText:comparison.advantageText,
       reviewRecommended:comparison.reviewRecommended===true,
       nonDestructive:true
@@ -88,6 +90,17 @@
     if(candidate.rangeText)parts.push(candidate.rangeText);
     if(candidate.scorePercent!=null)parts.push(`${candidate.scorePercent}%`);
     return parts.join(' · ');
+  }
+
+  function criterionLine(row={}){
+    const selected=row.selectedPercent==null?'–':`${row.selectedPercent}%`;
+    const runnerUp=row.runnerUpPercent==null?'–':`${row.runnerUpPercent}%`;
+    const delta=row.deltaPercent==null
+      ?''
+      :row.deltaPercent===0
+        ?' · tasan'
+        :` · ${row.deltaPercent>0?'+':''}${row.deltaPercent} %-yks.`;
+    return `${row.label}: ${selected} vs ${runnerUp}${delta}`;
   }
 
   function renderComparison(host,project,target={}){
@@ -119,6 +132,24 @@
         line.appendChild(reason);
       }
       box.appendChild(line);
+    }
+
+    if(model.criterionRows.length){
+      const criteria=document.createElement('div');
+      criteria.className='smart-mix-runner-up-criteria';
+
+      const criteriaTitle=document.createElement('strong');
+      criteriaTitle.textContent='Miksi valittu voitti';
+      criteria.appendChild(criteriaTitle);
+
+      for(const row of model.criterionRows){
+        const line=document.createElement('div');
+        line.className=`im-candidates smart-mix-runner-up-criterion smart-mix-runner-up-criterion-${row.advantage}`;
+        line.dataset.criterion=row.code;
+        line.textContent=criterionLine(row);
+        criteria.appendChild(line);
+      }
+      box.appendChild(criteria);
     }
 
     const summary=document.createElement('div');
@@ -189,6 +220,7 @@
     explanationForTarget,
     buildComparisonPanelModel,
     candidateLine,
+    criterionLine,
     renderComparison,
     targetFromElement,
     mount
