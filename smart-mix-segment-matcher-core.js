@@ -12,6 +12,16 @@
     ending:{energy:.30,trend:.10,transition:.28,activity:.12,crest:.10,continuity:.10},
     other:{energy:.30,trend:.14,transition:.18,activity:.14,crest:.08,continuity:.16}
   });
+  const SECTION_PURPOSE_TARGETS=Object.freeze({
+    intro:Object.freeze({buildup:1,steady:.86,reset:.76,transition:.72,impact:.64,peak:.60}),
+    stunt:Object.freeze({peak:1,impact:.94,buildup:.82,steady:.66,transition:.48,reset:.34}),
+    tumbling:Object.freeze({peak:.96,impact:.92,steady:.82,buildup:.80,transition:.54,reset:.38}),
+    pyramid:Object.freeze({buildup:1,peak:.96,impact:.90,steady:.68,transition:.50,reset:.36}),
+    dance:Object.freeze({peak:.94,steady:.92,impact:.88,buildup:.78,transition:.60,reset:.44}),
+    transition:Object.freeze({transition:1,reset:.94,buildup:.82,steady:.72,impact:.48,peak:.42}),
+    ending:Object.freeze({peak:1,impact:.96,buildup:.82,steady:.58,transition:.42,reset:.30}),
+    other:Object.freeze({steady:.90,buildup:.86,impact:.84,peak:.82,transition:.78,reset:.72})
+  });
 
   function finite(value,fallback=0){const n=Number(value);return Number.isFinite(n)?n:fallback;}
   function clamp01(value){return Math.max(0,Math.min(1,finite(value)));}
@@ -186,6 +196,78 @@
     });
   }
 
+  function sameSource(a={},b={}){
+    const ak=sourceKey(a),bk=sourceKey(b);
+    return ak==='unknown'||bk==='unknown'||ak===bk;
+  }
+
+  function purposeTargetScore(section={},purpose='steady'){
+    const type=SECTION_PURPOSE_TARGETS[section?.type]?section.type:'other';
+    const targets=SECTION_PURPOSE_TARGETS[type];
+    return clamp01(targets[String(purpose||'steady')]??targets.steady??.75);
+  }
+
+  function sourceSectionForCandidate(candidate={},sections=[],minConfidence=.72){
+    const threshold=clamp01(minConfidence);
+    let best=null;
+    for(const row of Array.isArray(sections)?sections:[]){
+      if(!row||!sameSource(candidate,row))continue;
+      const confidence=clamp01(row.confidence===undefined?1:row.confidence);
+      if(confidence<threshold)continue;
+      const startEight=Math.max(1,Math.round(finite(row.startEight,row.eight)));
+      const endEight=Math.max(startEight,Math.round(finite(row.endEight,startEight)));
+      const overlap=Math.max(0,Math.min(candidate.endEight,endEight)-Math.max(candidate.startEight,startEight)+1);
+      const duration=Math.max(1,candidate.endEight-candidate.startEight+1);
+      const coverage=clamp01(overlap/duration);
+      if(!overlap)continue;
+      const quality=coverage*confidence;
+      if(!best||quality>best.quality){
+        best={
+          id:row.id==null?null:String(row.id),
+          purpose:String(row.purpose||row.sectionPurpose||'steady'),
+          confidence,
+          startEight,
+          endEight,
+          coverage,
+          quality,
+          sourceName:row.sourceName==null?null:String(row.sourceName),
+          trackId:row.trackId==null?null:String(row.trackId)
+        };
+      }
+    }
+    return best;
+  }
+
+  function sectionPurposeFit(section={},candidate={},sections=[],minConfidence=.72){
+    const sourceSection=sourceSectionForCandidate(candidate,sections,minConfidence);
+    if(!sourceSection)return {source:'fallback',score:null,purpose:null,confidence:0,coverage:0,sectionId:null};
+    const compatibility=purposeTargetScore(section,sourceSection.purpose);
+    const reliability=clamp01(sourceSection.confidence*sourceSection.coverage);
+    const score=clamp01(.5+.5*compatibility*reliability);
+    return {
+      source:'detected',
+      score,
+      purpose:sourceSection.purpose,
+      compatibility,
+      confidence:sourceSection.confidence,
+      coverage:sourceSection.coverage,
+      sectionId:sourceSection.id
+    };
+  }
+
+  function applySectionPurposePreference(section={},candidates=[],options={}){
+    const prefer=options.preferSectionPurpose!==false;
+    if(!prefer)return candidates.map(candidate=>({...candidate,sectionPurpose:null}));
+    return candidates.map(candidate=>{
+      const sectionPurpose=sectionPurposeFit(section,candidate,options.sections,options.minPurposeConfidence);
+      if(sectionPurpose.source!=='detected'||!Number.isFinite(Number(sectionPurpose.score))){
+        return {...candidate,sectionPurpose};
+      }
+      const multiplier=.94+.06*clamp01(sectionPurpose.score);
+      return {...candidate,score:clamp01(candidate.score*multiplier),sectionPurpose};
+    });
+  }
+
   function candidateSegments(profile=[],durationEights=1){
     const rows=normalizeProfile(profile);
     const duration=Math.max(1,Math.floor(finite(durationEights,1)));
@@ -223,7 +305,9 @@
     phrases=[],
     sections=[],
     minBoundaryConfidence=.72,
-    structuralBoundaryCore=null
+    structuralBoundaryCore=null,
+    preferSectionPurpose=true,
+    minPurposeConfidence=.72
   }={}){
     const duration=Math.max(1,Math.floor(finite(section?.durationEights,finite(section?.endEight)-finite(section?.startEight)+1)));
     const overlapsExcluded=(candidate)=>excludeRanges.some(range=>{
@@ -234,7 +318,7 @@
     const scored=candidateSegments(profile,duration)
       .filter(candidate=>!overlapsExcluded(candidate))
       .map(candidate=>({...candidate,...scoreSegment(section,candidate.rows)}));
-    return applyStructuralBoundaryPreference(scored,{
+    const boundaryScored=applyStructuralBoundaryPreference(scored,{
       phraseEights,
       preferPhraseBoundaries,
       preferDetectedBoundaries,
@@ -242,9 +326,11 @@
       sections,
       minBoundaryConfidence,
       structuralBoundaryCore
-    })
+    });
+    return applySectionPurposePreference(section,boundaryScored,{sections,preferSectionPurpose,minPurposeConfidence})
       .filter(candidate=>candidate.score>=clamp01(minScore))
       .sort((a,b)=>b.score-a.score
+        ||finite(b.sectionPurpose?.score,-1)-finite(a.sectionPurpose?.score,-1)
         ||finite(b.structuralBoundary?.score,-1)-finite(a.structuralBoundary?.score,-1)
         ||b.phraseBoundary.score-a.phraseBoundary.score
         ||String(a.sourceName||'').localeCompare(String(b.sourceName||''))
@@ -263,7 +349,9 @@
     phrases=[],
     detectedSections=[],
     minBoundaryConfidence=.72,
-    structuralBoundaryCore=null
+    structuralBoundaryCore=null,
+    preferSectionPurpose=true,
+    minPurposeConfidence=.72
   }={}){
     const matches=[];
     const used=[];
@@ -278,7 +366,9 @@
         phrases,
         sections:detectedSections,
         minBoundaryConfidence,
-        structuralBoundaryCore
+        structuralBoundaryCore,
+        preferSectionPurpose,
+        minPurposeConfidence
       });
       const best=candidates[0]||null;
       if(best&&avoidReuse)used.push({sourceName:best.sourceName,trackId:best.trackId,startEight:best.startEight,endEight:best.endEight});
@@ -296,14 +386,17 @@
       preferPhraseBoundaries:preferPhraseBoundaries!==false,
       preferDetectedBoundaries:preferDetectedBoundaries!==false,
       minBoundaryConfidence:clamp01(minBoundaryConfidence),
+      preferSectionPurpose:preferSectionPurpose!==false,
+      minPurposeConfidence:clamp01(minPurposeConfidence),
       nonDestructive:true
     };
   }
 
   const api={
-    ENERGY_TARGETS,SECTION_WEIGHTS,sourceKey,normalizeProfile,targetTrend,classifyEntryTransition,
+    ENERGY_TARGETS,SECTION_WEIGHTS,SECTION_PURPOSE_TARGETS,sourceKey,normalizeProfile,targetTrend,classifyEntryTransition,
     transitionIntent,transitionIntentScore,segmentFeatures,scoreSegment,phraseBoundaryFit,
     applyPhraseBoundaryPreference,resolveStructuralBoundaryCore,applyStructuralBoundaryPreference,
+    sameSource,purposeTargetScore,sourceSectionForCandidate,sectionPurposeFit,applySectionPurposePreference,
     candidateSegments,rankSegments,matchPlanSections
   };
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
