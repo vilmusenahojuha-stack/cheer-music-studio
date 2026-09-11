@@ -5,6 +5,7 @@
   const finite=(v,f=0)=>{const n=Number(v);return Number.isFinite(n)?n:f;};
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const clone=value=>value==null?value:JSON.parse(JSON.stringify(value));
+  const sectionLabels=Object.freeze({intro:'Alku',jumps:'Hypyt',tumbling:'Akrobatia',stunt:'Stuntti',basket:'Heitot',pyramid:'Pyramidi',dance:'Dance',transition:'Siirtymä',ending:'Lopetus',other:'Osuus'});
 
   function secondsPerBeat(project){return 60/Math.max(1,finite(project?.targetBpm,147));}
   function clipEnd(clip){return finite(clip?.start)+Math.max(0,finite(clip?.duration));}
@@ -134,7 +135,99 @@
     return project?.smartMixProposalPackage||project?.smartMixProposal?.package||project?.intelligentMix?.proposalPackage||null;
   }
 
+  function buildSelectionExplanationView(proposalPackage){
+    const source=proposalPackage?.smartMixSelectionExplanation;
+    const matches=Array.isArray(source?.matches)?source.matches:[];
+    const sections=matches.map((row,index)=>{
+      const explanation=row?.explanation||{};
+      const reasons=(Array.isArray(explanation.reasons)?explanation.reasons:[]).filter(Boolean).slice(0,3);
+      const startEight=Number.isFinite(Number(explanation.startEight))?Math.max(1,Math.round(Number(explanation.startEight))):null;
+      const endEight=Number.isFinite(Number(explanation.endEight))?Math.max(startEight||1,Math.round(Number(explanation.endEight))):null;
+      return {
+        sectionId:row?.sectionId||`section-${index+1}`,
+        sectionType:row?.sectionType||'other',
+        label:sectionLabels[row?.sectionType]||sectionLabels.other,
+        selected:explanation.selected===true,
+        sourceName:explanation.sourceName||null,
+        startEight,
+        endEight,
+        confidence:clamp(finite(explanation.confidence,0),0,1),
+        primaryReason:explanation.primaryReason?.label||reasons[0]?.label||null,
+        reasons:reasons.map(reason=>({code:reason.code||null,label:reason.label||reason.code||'valintaperuste',strength:clamp(finite(reason.weight,finite(reason.score,0)),0,1)}))
+      };
+    });
+    return {
+      available:Boolean(source&&matches.length),
+      matchedSections:Math.max(0,Math.round(finite(source?.matchedSections,sections.filter(row=>row.selected).length))),
+      totalSections:Math.max(0,Math.round(finite(source?.totalSections,sections.length))),
+      sections,
+      nonDestructive:true
+    };
+  }
+
+  function confidenceText(value){
+    const pct=Math.round(clamp(finite(value,0),0,1)*100);
+    if(pct>=80)return `${pct}% · vahva`;
+    if(pct>=60)return `${pct}% · kohtalainen`;
+    return `${pct}% · tarkista`;
+  }
+
+  function selectionRangeText(row){
+    if(row.startEight==null)return '';
+    return row.endEight!=null&&row.endEight!==row.startEight?`8-countit ${row.startEight}–${row.endEight}`:`8-count ${row.startEight}`;
+  }
+
+  function renderSelectionExplanation(project){
+    if(typeof document==='undefined')return false;
+    const host=q('#smartMixSelectionExplanation');
+    if(!host)return false;
+    const view=buildSelectionExplanationView(wholeMixPackage(project));
+    host.replaceChildren();
+    host.hidden=!view.available;
+    if(!view.available)return false;
+
+    const title=document.createElement('div');
+    title.className='im-reason';
+    title.textContent=`Miksi Smart Mix valitsi nämä kohdat · ${view.matchedSections}/${view.totalSections||view.sections.length} osiota`;
+    host.appendChild(title);
+
+    for(const row of view.sections){
+      const card=document.createElement('div');
+      card.className='im-card smart-mix-selection-explanation-card';
+      const head=document.createElement('div');
+      head.className='im-head';
+      const left=document.createElement('div');
+      const strong=document.createElement('strong');
+      strong.textContent=row.label;
+      left.appendChild(strong);
+      const span=document.createElement('span');
+      const range=selectionRangeText(row);
+      span.textContent=[row.sourceName,range].filter(Boolean).join(' · ')||'Ei valittua lähdejaksoa';
+      left.appendChild(span);
+      const score=document.createElement('div');
+      score.className=`im-score ${row.confidence>=.8?'good':row.confidence>=.6?'mid':'bad'}`;
+      score.textContent=confidenceText(row.confidence);
+      head.append(left,score);
+      card.appendChild(head);
+
+      const reason=document.createElement('div');
+      reason.className='im-reason';
+      reason.textContent=row.primaryReason?`Valittu, koska ${row.primaryReason}.`:'Valintaperustelu vaatii vielä tarkistuksen.';
+      card.appendChild(reason);
+
+      if(row.reasons.length>1){
+        const details=document.createElement('div');
+        details.className='im-candidates';
+        details.textContent=`Lisäksi: ${row.reasons.slice(1).map(item=>item.label).join(' · ')}`;
+        card.appendChild(details);
+      }
+      host.appendChild(card);
+    }
+    return true;
+  }
+
   let controller=null;
+  let explanationObserver=null;
   function stopPreview(){
     try{controller?.stop?.();}catch(_){}
     controller=null;
@@ -174,9 +267,37 @@
     }
   }
 
+  function mountExplanationPanel(){
+    if(typeof document==='undefined')return false;
+    const panel=q('#intelligentMixPanel');
+    if(!panel)return false;
+    let host=q('#smartMixSelectionExplanation');
+    if(!host){
+      host=document.createElement('div');
+      host.id='smartMixSelectionExplanation';
+      host.className='smart-mix-selection-explanation';
+      host.hidden=true;
+      const results=q('#intelligentMixResults');
+      results?panel.insertBefore(host,results):panel.appendChild(host);
+    }
+    const project=typeof state!=='undefined'?state:null;
+    renderSelectionExplanation(project);
+    const status=q('#smartMix2Status');
+    if(status&&!explanationObserver&&typeof MutationObserver!=='undefined'){
+      explanationObserver=new MutationObserver(()=>{
+        const current=typeof state!=='undefined'?state:null;
+        renderSelectionExplanation(current);
+      });
+      explanationObserver.observe(status,{childList:true,characterData:true,subtree:true});
+    }
+    return true;
+  }
+
   function mountButton(){
     const host=q('#intelligentMixPanel .im-main-actions');
-    if(!host||q('#btnPreviewSmartMix'))return false;
+    if(!host)return false;
+    mountExplanationPanel();
+    if(q('#btnPreviewSmartMix'))return true;
     const btn=document.createElement('button');
     btn.id='btnPreviewSmartMix';
     btn.className='mini-btn';
@@ -191,7 +312,7 @@
     observer.observe(document.body,{childList:true,subtree:true});
   }
 
-  const api={buildSuggestedTimelinePlan,buildWholeMixTimelinePlan,applySuggestedTransition,previewSuggestedMix,stopPreview};
+  const api={buildSuggestedTimelinePlan,buildWholeMixTimelinePlan,buildSelectionExplanationView,renderSelectionExplanation,applySuggestedTransition,previewSuggestedMix,stopPreview};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.CheerSmartMixPreviewUI=api;
   if(typeof document!=='undefined')document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
