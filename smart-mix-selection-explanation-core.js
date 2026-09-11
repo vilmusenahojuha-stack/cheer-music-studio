@@ -136,6 +136,7 @@
         margin:null,
         primaryReason:null,
         reasons:[],
+        evidence:[],
         nonDestructive:true
       };
     }
@@ -152,6 +153,7 @@
       margin,
       primaryReason:reasons[0]||null,
       reasons:reasons.slice(0,limit),
+      evidence:reasons,
       sourceName:candidate.sourceName||null,
       trackId:candidate.trackId||null,
       startEight:candidate.startEight??null,
