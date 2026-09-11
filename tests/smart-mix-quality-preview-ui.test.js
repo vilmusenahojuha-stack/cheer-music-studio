@@ -1,12 +1,46 @@
 const assert=require('assert');
 const ui=require('../smart-mix-quality-preview-ui.js');
 
+const fullEvidence=[
+  {
+    code:'purpose',score:.99,
+    detail:{purpose:'peak',compatibility:1,sectionId:'peak-section'}
+  },
+  {
+    code:'energy',score:.94,
+    detail:{target:'high',averageEnergy:.76}
+  },
+  {
+    code:'transition',score:.96,
+    detail:{wanted:'drop',actual:'drop',matched:true}
+  },
+  {
+    code:'boundary',score:.98,
+    detail:{kind:'section',startAligned:true,endAligned:true}
+  },
+  {
+    code:'phrase',score:1,
+    detail:{phraseEights:4,startAligned:true,endAligned:true}
+  }
+];
+
 const proposal={
   audioTimelinePlan:{clips:[{id:'keep-me'}]},
   smartMixSelectionExplanation:{
     matches:[
       {sectionId:'intro'},
-      {sectionId:'stunt'},
+      {
+        sectionId:'stunt',
+        sectionType:'stunt',
+        explanation:{
+          sourceName:'purpose.wav',
+          startEight:5,
+          endEight:8,
+          confidence:.91,
+          reasons:fullEvidence.slice(0,3),
+          evidence:fullEvidence
+        }
+      },
       {sectionId:'pyramid'},
       {sectionId:'ending'}
     ]
@@ -100,6 +134,52 @@ assert.equal(ui.reviewNavigationIndex(proposal,risky.reviewTargets[0]),3);
 assert.equal(ui.reviewNavigationSectionId(risky.reviewTargets[2]),'pyramid');
 assert.equal(ui.reviewNavigationIndex(proposal,risky.reviewTargets[2]),2);
 
+const stuntTarget={
+  kind:'section',
+  sectionId:'stunt',
+  sectionType:'stunt',
+  reason:'energy-mismatch',
+  severity:.81
+};
+const inspector=ui.buildSectionReviewInspector(proposal,stuntTarget);
+assert.equal(inspector.available,true);
+assert.equal(inspector.sectionId,'stunt');
+assert.equal(inspector.title,'Stuntti (stunt) · tarkistustiedot');
+assert.equal(inspector.sourceName,'purpose.wav');
+assert.equal(inspector.startEight,5);
+assert.equal(inspector.endEight,8);
+assert.equal(inspector.confidencePercent,91);
+assert.equal(inspector.rows.length,5);
+assert.equal(inspector.rows[0].code,'purpose');
+assert.equal(inspector.rows[0].value,'peak · yhteensopivuus 100%');
+assert.equal(inspector.rows[1].code,'energy');
+assert.equal(inspector.rows[1].value,'76% · tavoite high');
+assert.equal(inspector.rows[2].code,'transition');
+assert.equal(inspector.rows[2].value,'drop → tavoite drop · osuma kyllä');
+assert.equal(inspector.rows[3].code,'boundary');
+assert.equal(inspector.rows[4].code,'phrase');
+assert.match(inspector.rows[4].value,/4 × 8/);
+assert.equal(inspector.nonDestructive,true);
+
+const compactProposal={
+  smartMixSelectionExplanation:{
+    matches:[{
+      sectionId:'stunt',
+      sectionType:'stunt',
+      explanation:{
+        reasons:fullEvidence.slice(0,3)
+      }
+    }]
+  }
+};
+const compact=ui.buildSectionReviewInspector(compactProposal,stuntTarget);
+assert.equal(compact.available,true);
+assert.equal(compact.rows.length,3,'older proposals without full evidence should fall back to top reasons');
+
+const unavailable=ui.buildSectionReviewInspector(proposal,{kind:'section',sectionId:'missing'});
+assert.equal(unavailable.available,false);
+assert.equal(unavailable.nonDestructive,true);
+
 const transitionFallback={kind:'transition',fromSectionId:'stunt',toSectionId:null};
 assert.equal(ui.reviewNavigationSectionId(transitionFallback),'stunt');
 assert.equal(ui.reviewNavigationIndex(proposal,transitionFallback),1);
@@ -136,4 +216,4 @@ assert.strictEqual(ui.wholeMixPackage(project),proposal);
 assert.deepEqual(proposal.audioTimelinePlan,{clips:[{id:'keep-me'}]});
 assert.deepEqual(proposal.smartMixSelectionExplanation.matches.map(row=>row.sectionId),['intro','stunt','pyramid','ending']);
 
-console.log('smart-mix whole quality preview navigation tests passed');
+console.log('smart-mix section review inspector tests passed');
