@@ -24,6 +24,28 @@
     'match-coherence-low':'Segmenttien kokonaisosuvuus vaatii tarkistuksen'
   });
 
+  const reviewReasonLabels=Object.freeze({
+    'energy-mismatch':'Energia ei vastaa tämän osuuden tavoitetta',
+    'weak-match':'Valitun musiikkijakson osuvuus on heikko',
+    'weak-ending-energy':'Lopetuksen energia jää liian matalaksi',
+    'ending-not-last':'Lopetusosuus ei ole mixin viimeinen osuus',
+    'source-overuse':'Samaa lähdekappaletta jatkuu liian pitkään',
+    'flat-energy-arc':'Tämä kohta ylläpitää liian tasaista energiakaarta'
+  });
+
+  const sectionTypeLabels=Object.freeze({
+    intro:'Intro',
+    stunt:'Stuntti',
+    basket:'Heitot',
+    pyramid:'Pyramidi',
+    transition:'Siirtymä',
+    dance:'Dance',
+    jumps:'Hypyt',
+    tumbling:'Voltit',
+    ending:'Lopetus',
+    other:'Osuus'
+  });
+
   function wholeMixPackage(project){
     return project?.smartMixProposalPackage||
       project?.smartMixProposal?.package||
@@ -33,6 +55,37 @@
 
   function percent(value){
     return Math.round(clamp01(value)*100);
+  }
+
+  function sectionLabel(type,id){
+    const base=sectionTypeLabels[String(type||'other')]||sectionTypeLabels.other;
+    return id?`${base} (${id})`:base;
+  }
+
+  function buildReviewTargets(source){
+    return (Array.isArray(source?.reviewTargets)?source.reviewTargets:[])
+      .filter(Boolean)
+      .map((target,index)=>{
+        const severity=clamp01(target.severity);
+        const kind=target.kind==='transition'?'transition':'section';
+        const label=kind==='transition'
+          ?`Siirtymä ${target.fromSectionId||'?'} → ${target.toSectionId||'?'}`
+          :sectionLabel(target.sectionType,target.sectionId);
+        return {
+          index,
+          kind,
+          sectionId:target.sectionId||null,
+          fromSectionId:target.fromSectionId||null,
+          toSectionId:target.toSectionId||null,
+          reason:String(target.reason||'review'),
+          reasonLabel:reviewReasonLabels[target.reason]||String(target.reason||'Tarkista kohta'),
+          severity,
+          severityPercent:percent(severity),
+          label,
+          evidence:target.evidence||null
+        };
+      })
+      .sort((a,b)=>b.severity-a.severity || a.index-b.index);
   }
 
   function buildWholeMixQualityView(proposalPackage){
@@ -46,6 +99,7 @@
         readyForFxReview:false,
         components:[],
         risks:[],
+        reviewTargets:[],
         nonDestructive:true
       };
     }
@@ -80,6 +134,7 @@
       readyForFxReview:source.readyForFxReview===true,
       components:rows,
       risks,
+      reviewTargets:buildReviewTargets(source),
       nonDestructive:true
     };
   }
@@ -89,6 +144,39 @@
     if(value>=.80)return 'good';
     if(value>=.65)return 'mid';
     return 'bad';
+  }
+
+  function renderReviewTargets(card,view){
+    if(!view.reviewTargets.length)return;
+
+    const title=document.createElement('strong');
+    title.className='im-review-title';
+    title.textContent='Tarkista ensin nämä kohdat';
+    card.appendChild(title);
+
+    const list=document.createElement('div');
+    list.className='im-review-targets';
+
+    for(const target of view.reviewTargets.slice(0,5)){
+      const row=document.createElement('div');
+      row.className='im-reason smart-mix-review-target';
+      row.dataset.reviewKind=target.kind;
+      row.dataset.reviewReason=target.reason;
+      if(target.sectionId)row.dataset.sectionId=target.sectionId;
+      if(target.fromSectionId)row.dataset.fromSectionId=target.fromSectionId;
+      if(target.toSectionId)row.dataset.toSectionId=target.toSectionId;
+
+      const label=document.createElement('strong');
+      label.textContent=`${target.label} · ${target.severityPercent}%`;
+
+      const reason=document.createElement('span');
+      reason.textContent=target.reasonLabel;
+
+      row.append(label,reason);
+      list.appendChild(row);
+    }
+
+    card.appendChild(list);
   }
 
   function renderWholeMixQuality(project){
@@ -140,6 +228,7 @@
       card.appendChild(ok);
     }
 
+    renderReviewTargets(card,view);
     host.appendChild(card);
     return true;
   }
@@ -194,7 +283,10 @@
   const api={
     ratingLabels,
     riskLabels,
+    reviewReasonLabels,
+    sectionTypeLabels,
     wholeMixPackage,
+    buildReviewTargets,
     buildWholeMixQualityView,
     renderWholeMixQuality,
     mount
