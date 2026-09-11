@@ -39,6 +39,8 @@ jobs:
         run: node tests/smart-mix-whole-mix-quality-core.test.js
       - name: Smart Mix transition flow quality tests
         run: node tests/smart-mix-transition-flow-quality-core.test.js
+      - name: Smart Mix whole quality transition integration tests
+        run: node tests/smart-mix-whole-quality-transition-integration.test.js
       - name: Smart Mix whole quality workflow integration tests
         run: node tests/smart-mix-workflow-whole-quality.test.js
       - name: Smart Mix whole quality preview tests
