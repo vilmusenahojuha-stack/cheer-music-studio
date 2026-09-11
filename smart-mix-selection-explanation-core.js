@@ -185,7 +185,27 @@
     };
   }
 
-  const api={REASON_LABELS,reasonCandidates,selectionConfidence,explainCandidate,explainMatch,explainPlanMatches};
+  function attachExplanationsToProposal(proposal={},matchPlan={}){
+    const explanation=explainPlanMatches(matchPlan);
+    return {
+      ...proposal,
+      smartMixSelectionExplanation:{
+        ...explanation,
+        source:'smart-mix-match-plan',
+        nonDestructive:true
+      }
+    };
+  }
+
+  const api={
+    REASON_LABELS,
+    reasonCandidates,
+    selectionConfidence,
+    explainCandidate,
+    explainMatch,
+    explainPlanMatches,
+    attachExplanationsToProposal
+  };
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixSelectionExplanationCore=api;
 })();
