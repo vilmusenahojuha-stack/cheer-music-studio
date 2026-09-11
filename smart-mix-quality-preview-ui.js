@@ -46,6 +46,14 @@
     other:'Osuus'
   });
 
+  const inspectorLabels=Object.freeze({
+    purpose:'Osuuden tarkoitus',
+    energy:'Energia',
+    transition:'Break/drop-sisääntulo',
+    boundary:'Leikkausraja',
+    phrase:'Fraasiraja'
+  });
+
   function wholeMixPackage(project){
     return project?.smartMixProposalPackage||
       project?.smartMixProposal?.package||
@@ -156,6 +164,93 @@
     return matches.findIndex(row=>String(row?.sectionId||'')===String(sectionId));
   }
 
+  function reviewExplanationMatch(proposalPackage,target){
+    const index=reviewNavigationIndex(proposalPackage,target);
+    if(index<0)return null;
+    return proposalPackage.smartMixSelectionExplanation.matches[index]||null;
+  }
+
+  function yesNo(value){
+    return value?'kyllä':'ei';
+  }
+
+  function inspectorValue(code,detail={}){
+    if(code==='purpose'){
+      const compatibility=Number.isFinite(Number(detail.compatibility))
+        ?` · yhteensopivuus ${percent(detail.compatibility)}%`
+        :'';
+      return `${detail.purpose||'ei tunnistettu'}${compatibility}`;
+    }
+    if(code==='energy'){
+      const actual=Number.isFinite(Number(detail.averageEnergy))
+        ?`${percent(detail.averageEnergy)}%`
+        :'ei mitattu';
+      return `${actual} · tavoite ${detail.target||'ei määritetty'}`;
+    }
+    if(code==='transition'){
+      return `${detail.actual||'none'} → tavoite ${detail.wanted||'neutral'} · osuma ${yesNo(detail.matched)}`;
+    }
+    if(code==='boundary'){
+      return `${detail.kind||'havaittu raja'} · alku ${yesNo(detail.startAligned)} · loppu ${yesNo(detail.endAligned)}`;
+    }
+    if(code==='phrase'){
+      const size=detail.phraseEights?`${detail.phraseEights} × 8`:'fraasi';
+      return `${size} · alku ${yesNo(detail.startAligned)} · loppu ${yesNo(detail.endAligned)}`;
+    }
+    return '';
+  }
+
+  function buildSectionReviewInspector(proposalPackage,target){
+    const match=reviewExplanationMatch(proposalPackage,target);
+    if(!match?.explanation){
+      return {
+        available:false,
+        sectionId:reviewNavigationSectionId(target),
+        sectionType:match?.sectionType||'other',
+        title:'Tarkistustiedot eivät ole saatavilla',
+        rows:[],
+        nonDestructive:true
+      };
+    }
+
+    const explanation=match.explanation;
+    const evidence=Array.isArray(explanation.evidence)&&explanation.evidence.length
+      ?explanation.evidence
+      :(Array.isArray(explanation.reasons)?explanation.reasons:[]);
+    const byCode=new Map(evidence.map(row=>[row?.code,row]));
+    const rows=['purpose','energy','transition','boundary','phrase']
+      .map(code=>{
+        const row=byCode.get(code);
+        if(!row)return null;
+        return {
+          code,
+          label:inspectorLabels[code],
+          value:inspectorValue(code,row.detail||{}),
+          score:Number.isFinite(Number(row.score))?clamp01(row.score):null,
+          scorePercent:Number.isFinite(Number(row.score))?percent(row.score):null
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      available:rows.length>0,
+      sectionId:match.sectionId||reviewNavigationSectionId(target),
+      sectionType:match.sectionType||'other',
+      title:`${sectionLabel(match.sectionType,match.sectionId)} · tarkistustiedot`,
+      sourceName:explanation.sourceName||null,
+      startEight:explanation.startEight??null,
+      endEight:explanation.endEight??null,
+      confidence:Number.isFinite(Number(explanation.confidence))
+        ?clamp01(explanation.confidence)
+        :null,
+      confidencePercent:Number.isFinite(Number(explanation.confidence))
+        ?percent(explanation.confidence)
+        :null,
+      rows,
+      nonDestructive:true
+    };
+  }
+
   function navigateToReviewTarget(project,target){
     if(typeof document==='undefined')return false;
     const proposalPackage=wholeMixPackage(project);
@@ -195,7 +290,46 @@
     return 'bad';
   }
 
-  function renderReviewTargets(card,view,project){
+  function renderSectionReviewInspector(host,proposalPackage,target){
+    if(!host||typeof document==='undefined')return false;
+    const inspector=buildSectionReviewInspector(proposalPackage,target);
+    host.replaceChildren();
+    host.hidden=!inspector.available;
+    if(!inspector.available)return false;
+
+    const box=document.createElement('div');
+    box.className='im-card smart-mix-section-review-inspector';
+
+    const title=document.createElement('strong');
+    title.textContent=inspector.title;
+    box.appendChild(title);
+
+    const meta=[];
+    if(inspector.sourceName)meta.push(inspector.sourceName);
+    if(inspector.startEight!=null&&inspector.endEight!=null){
+      meta.push(`8-count ${inspector.startEight}–${inspector.endEight}`);
+    }
+    if(inspector.confidencePercent!=null)meta.push(`varmuus ${inspector.confidencePercent}%`);
+    if(meta.length){
+      const metaLine=document.createElement('div');
+      metaLine.className='im-candidates';
+      metaLine.textContent=meta.join(' · ');
+      box.appendChild(metaLine);
+    }
+
+    for(const row of inspector.rows){
+      const line=document.createElement('div');
+      line.className='im-reason';
+      const score=row.scorePercent==null?'':` · ${row.scorePercent}%`;
+      line.textContent=`${row.label}: ${row.value}${score}`;
+      box.appendChild(line);
+    }
+
+    host.appendChild(box);
+    return true;
+  }
+
+  function renderReviewTargets(card,view,project,proposalPackage){
     if(!view.reviewTargets.length)return;
 
     const title=document.createElement('strong');
@@ -205,6 +339,10 @@
 
     const list=document.createElement('div');
     list.className='im-review-targets';
+
+    const detailHost=document.createElement('div');
+    detailHost.className='smart-mix-review-inspector-host';
+    detailHost.hidden=true;
 
     for(const target of view.reviewTargets.slice(0,5)){
       const row=document.createElement('div');
@@ -218,7 +356,10 @@
       row.setAttribute('tabindex','0');
       row.setAttribute('aria-label',`Näytä tarkistettava kohta: ${target.label}. ${target.reasonLabel}`);
 
-      const openTarget=()=>navigateToReviewTarget(project,target);
+      const openTarget=()=>{
+        renderSectionReviewInspector(detailHost,proposalPackage,target);
+        return navigateToReviewTarget(project,target);
+      };
       row.addEventListener('click',openTarget);
       row.addEventListener('keydown',event=>{
         if(event.key!=='Enter'&&event.key!==' ')return;
@@ -236,7 +377,7 @@
       list.appendChild(row);
     }
 
-    card.appendChild(list);
+    card.append(list,detailHost);
   }
 
   function renderWholeMixQuality(project){
@@ -244,7 +385,8 @@
     const host=q('#smartMixWholeMixQuality');
     if(!host)return false;
 
-    const view=buildWholeMixQualityView(wholeMixPackage(project));
+    const proposalPackage=wholeMixPackage(project);
+    const view=buildWholeMixQualityView(proposalPackage);
     host.replaceChildren();
     host.hidden=!view.available;
     if(!view.available)return false;
@@ -288,7 +430,7 @@
       card.appendChild(ok);
     }
 
-    renderReviewTargets(card,view,project);
+    renderReviewTargets(card,view,project,proposalPackage);
     host.appendChild(card);
     return true;
   }
@@ -345,12 +487,16 @@
     riskLabels,
     reviewReasonLabels,
     sectionTypeLabels,
+    inspectorLabels,
     wholeMixPackage,
     buildReviewTargets,
     buildWholeMixQualityView,
     reviewNavigationSectionId,
     reviewNavigationIndex,
+    reviewExplanationMatch,
+    buildSectionReviewInspector,
     navigateToReviewTarget,
+    renderSectionReviewInspector,
     renderWholeMixQuality,
     mount
   };
