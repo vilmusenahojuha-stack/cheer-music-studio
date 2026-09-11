@@ -45,6 +45,8 @@ jobs:
         run: node tests/smart-mix-workflow-whole-quality.test.js
       - name: Smart Mix whole quality preview tests
         run: node tests/smart-mix-quality-preview-ui.test.js
+      - name: Smart Mix transition review UI tests
+        run: node tests/smart-mix-transition-review-ui.test.js
       - name: Smart Mix runner-up comparison view tests
         run: node tests/smart-mix-runner-up-comparison-view.test.js
       - name: Smart Mix runner-up comparison UI integration tests
