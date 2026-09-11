@@ -33,6 +33,8 @@ jobs:
         run: node tests/smart-mix-alignment-ui.test.js
       - name: Smart Mix source section purpose ranking tests
         run: node tests/smart-mix-section-purpose-ranking.test.js
+      - name: Smart Mix selection explanation preview tests
+        run: node tests/smart-mix-selection-explanation-preview.test.js
       - name: Audio timing regression tests
         run: node tests/audio-timing-core.test.js
       - name: Shared DSP regression tests
