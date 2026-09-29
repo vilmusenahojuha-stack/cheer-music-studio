@@ -2,7 +2,7 @@ name: JavaScript regression checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev/cheer-intelligence]
   pull_request:
   workflow_dispatch:
 
@@ -51,6 +51,8 @@ jobs:
         run: node tests/smart-mix-runner-up-comparison-view.test.js
       - name: Smart Mix runner-up comparison UI integration tests
         run: node tests/smart-mix-runner-up-comparison-ui.test.js
+      - name: Canonical render plan integration tests
+        run: node tests/canonical-render-plan.integration.test.js
       - name: Audio timing regression tests
         run: node tests/audio-timing-core.test.js
       - name: Shared DSP regression tests
