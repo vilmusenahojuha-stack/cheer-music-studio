@@ -179,6 +179,64 @@
     };
   }
 
+
+  function countPosition(at,bpm,startAt=0){
+    const tempo=finite(bpm);
+    if(!(tempo>0))return {eight:null,count:null,subdivision:null};
+    const countSeconds=60/tempo;
+    const absoluteCounts=Math.max(0,(finite(at)-Math.max(0,finite(startAt)))/countSeconds);
+    const whole=Math.floor(absoluteCounts+1e-9);
+    const fraction=Math.max(0,absoluteCounts-whole);
+    return {eight:Math.floor(whole/8)+1,count:(whole%8)+1,subdivision:Number(fraction.toFixed(6))};
+  }
+
+  function canonicalEvent(kind,event,bpm,startAt=0,index=0){
+    const at=Math.max(0,finite(event?.start,event?.at));
+    const pos=countPosition(at,bpm,startAt);
+    return {
+      id:event?.id||('canonical-'+kind+'-'+(index+1)),kind,
+      sectionId:event?.sectionId||event?.smartMix?.sectionId||null,
+      sectionType:event?.sectionType||event?.smartMix?.sectionType||'other',
+      eight:event?.eight==null?pos.eight:finite(event.eight,pos.eight),
+      count:event?.count==null?pos.count:finite(event.count,pos.count),
+      subdivision:event?.subdivision==null?pos.subdivision:finite(event.subdivision,pos.subdivision),
+      at,duration:Math.max(0,finite(event?.duration)),
+      sourceName:event?.sourceName||null,sourceTrackId:event?.sourceTrackId||event?.trackId||null,
+      sourceOffset:Math.max(0,finite(event?.sourceOffset)),
+      gain:finite(event?.gain,event?.volume==null?1:event.volume),
+      fadeIn:Math.max(0,finite(event?.fadeIn)),fadeOut:Math.max(0,finite(event?.fadeOut)),
+      tempoRate:finite(event?.tempoRate,event?.playbackRate==null?1:event.playbackRate),
+      sourcePhrase:event?.sourcePhrase||null,
+      sourceEightStart:event?.sourceEightStart??event?.smartMix?.sourceStartEight??null,
+      sourceEightEnd:event?.sourceEightEnd??event?.smartMix?.sourceEndEight??null,
+      processing:event?.processing||null,metadata:event?.metadata||null
+    };
+  }
+
+  function buildCanonicalRenderPlan(audioTimelinePlan={},input={},options={}){
+    const bpm=finite(audioTimelinePlan?.bpm,input?.bpm||0);
+    if(!(bpm>0)||!Array.isArray(audioTimelinePlan?.clips))return {version:1,kind:'cheer-canonical-render-plan',status:'blocked',reason:'audio-timeline-plan-required',bpm:bpm>0?bpm:null,startAt:0,duration:0,events:[],nonDestructive:true};
+    const startAt=Math.max(0,finite(audioTimelinePlan.startAt));
+    const music=audioTimelinePlan.clips.map((clip,index)=>canonicalEvent('music',clip,bpm,startAt,index));
+    const transitions=(audioTimelinePlan.transitions||[]).map((transition,index)=>{
+      const to=music[index+1]||null,at=to?.at??startAt;
+      return {...canonicalEvent('transition',{...transition,at,sectionId:transition?.toSectionId||to?.sectionId,sectionType:to?.sectionType,duration:transition?.fadeSeconds||0},bpm,startAt,index),
+        transitionType:transition?.type||'clean-cut',renderMode:transition?.renderMode||null,
+        fromSectionId:transition?.fromSectionId||null,toSectionId:transition?.toSectionId||null,
+        countLength:finite(transition?.countLength),qualityRating:transition?.qualityRating||null};
+    });
+    const skillHits=(input.skillHits||options.skillHits||[]).map((event,index)=>canonicalEvent('skill-hit',event,bpm,startAt,index));
+    const cheerFx=(input.cheerFxAnchors||options.cheerFxAnchors||[]).map((event,index)=>canonicalEvent('cheer-fx',event,bpm,startAt,index));
+    const voiceover=(input.voiceoverClips||options.voiceoverClips||[]).map((event,index)=>canonicalEvent('voiceover',event,bpm,startAt,index));
+    const ducking=(input.duckingRegions||options.duckingRegions||[]).map((event,index)=>canonicalEvent('ducking',event,bpm,startAt,index));
+    const automation=(input.automation||options.automation||[]).map((event,index)=>canonicalEvent('automation',event,bpm,startAt,index));
+    const events=[...music,...transitions,...skillHits,...cheerFx,...voiceover,...ducking,...automation].sort((a,b)=>a.at-b.at||String(a.kind).localeCompare(String(b.kind)));
+    const eventEnd=events.reduce((max,event)=>Math.max(max,event.at+event.duration),0);
+    return {version:1,kind:'cheer-canonical-render-plan',status:audioTimelinePlan.status==='preview-ready'?'preview-ready':'review-required',bpm,startAt,
+      duration:Math.max(finite(audioTimelinePlan.duration)+startAt,eventEnd),events,lanes:{music,transitions,skillHits,cheerFx,voiceover,ducking,automation},
+      source:'smart-mix-proposal-package',timingBasis:'eight-count/count/subdivision/seconds',nonDestructive:true};
+  }
+
   function collectRisks(review={},editPlan=null,iterative=null,audioTimelinePlan=null){
     const risks=new Set(Array.isArray(review?.riskFlags)?review.riskFlags:[]);
     if(editPlan?.conflicts?.length)risks.add('edit-action-conflict');
@@ -226,6 +284,7 @@
     const sequence=mergeReviewedTransitions(normalized,review?.transitions);
     const bpm=finite(input?.smartMixProposal?.bpm,input?.bpm||0);
     const audioTimelinePlan=buildAudioTimelinePlan(sequence,bpm,{startAt:options.timelineStartAt||0});
+    const canonicalRenderPlan=buildCanonicalRenderPlan(audioTimelinePlan,input,options);
     const risks=collectRisks(review,editPlan,iterative,audioTimelinePlan);
     const status=packageStatus({review,editPlan,risks,audioTimelinePlan});
 
@@ -239,6 +298,7 @@
       safePreviewOnly:true,
       sequence,
       audioTimelinePlan,
+      canonicalRenderPlan,
       transitions:Array.isArray(review?.transitions)?review.transitions:[],
       editPlan,
       quality:{
@@ -275,7 +335,7 @@
     };
   }
 
-  const api={normalizeSequence,mergeReviewedTransitions,transitionDecision,transitionFadeSeconds,applyCountSafeMicrofades,buildAudioTimelinePlan,collectRisks,packageStatus,createProposalPackage};
+  const api={normalizeSequence,mergeReviewedTransitions,transitionDecision,transitionFadeSeconds,applyCountSafeMicrofades,buildAudioTimelinePlan,countPosition,canonicalEvent,buildCanonicalRenderPlan,collectRisks,packageStatus,createProposalPackage};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof window!=='undefined')window.SmartMixProposalPackageCore=api;
 })();
