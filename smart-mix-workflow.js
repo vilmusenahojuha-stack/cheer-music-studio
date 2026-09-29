@@ -114,7 +114,28 @@
     const proposal=cores.package.createProposalPackage({optimized,matchPlan,bpm},{reoptimize:false});
     const withQuality=cores.wholeMixQuality?.attachProposalQuality?cores.wholeMixQuality.attachProposalQuality(proposal,plan,matchPlan,{availableSources:profileGroups.length}):proposal;
     const withFx=cores.fxIntegration?.attachStructuralCheerFx?cores.fxIntegration.attachStructuralCheerFx(withQuality):withQuality;
-    const withExplanation=cores.explanation?.attachExplanationsToProposal?cores.explanation.attachExplanationsToProposal(withFx,matchPlan):withFx;
+    const voiceoverClips=(project.audioTimeline?.clips||[]).filter(clip=>clip?.type==='voice');
+    const duckAttack=Math.max(0,finite(project.mixSettings?.duckAttack,.08));
+    const duckRelease=Math.max(0,finite(project.mixSettings?.duckRelease,.18));
+    const duckingRegions=voiceoverClips.map((clip,index)=>({
+      id:'smartmix-duck-'+(clip.id||index+1),
+      sectionId:clip?.sectionId||clip?.smartMix?.sectionId||null,
+      sectionType:clip?.sectionType||clip?.smartMix?.sectionType||'other',
+      start:Math.max(0,finite(clip.start)-duckAttack),
+      duration:Math.max(0,finite(clip.duration)+duckAttack+duckRelease),
+      gain:Math.pow(10,finite(project.mixSettings?.duckDb,-7)/20),
+      metadata:{attack:duckAttack,release:duckRelease,sourceVoiceoverId:clip.id||null}
+    }));
+    const canonicalRenderPlan=cores.package?.buildCanonicalRenderPlan?cores.package.buildCanonicalRenderPlan(withFx.audioTimelinePlan||{},{
+      bpm,
+      skillHits:Array.isArray(project.skillHits)?project.skillHits:[],
+      cheerFxAnchors:Array.isArray(withFx.cheerFx?.anchors)?withFx.cheerFx.anchors:(withFx.audioTimelinePlan?.cheerFxAnchors||[]),
+      voiceoverClips,
+      duckingRegions,
+      automation:Array.isArray(project.mixAutomation)?project.mixAutomation:[]
+    }):withFx.canonicalRenderPlan;
+    const withCanonical={...withFx,canonicalRenderPlan};
+    const withExplanation=cores.explanation?.attachExplanationsToProposal?cores.explanation.attachExplanationsToProposal(withCanonical,matchPlan):withCanonical;
     return {...withExplanation,cheerPlan:plan,matchPlan,detectedStructure,sourceProfiles:combined.length,generatedAt:Date.now()};
   }
 
